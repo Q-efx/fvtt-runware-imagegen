@@ -1,0 +1,224 @@
+<form class="runware-image-form" autocomplete="off">
+  
+  {{#if isGenerating}}
+  <div class="runware-loading">
+    <i class="fas fa-spinner"></i>
+    <span>Generating image, please wait...</span>
+  </div>
+  {{/if}}
+  
+  <!-- Actor Information -->
+  <div class="runware-form-section">
+    <h3><i class="fas fa-user"></i> Actor Information</h3>
+    <div class="runware-form-group">
+      <label>Generating for:</label>
+      <input type="text" value="{{actorName}}" readonly disabled />
+    </div>
+  </div>
+  
+  <!-- Prompt Section -->
+  <div class="runware-form-section">
+    <h3><i class="fas fa-pencil-alt"></i> Image Prompt</h3>
+    
+    <div class="runware-form-group">
+      <label for="prompt">Positive Prompt *</label>
+      <textarea 
+        name="prompt" 
+        id="prompt" 
+        placeholder="Describe the image you want to generate..."
+        required
+        {{#if isGenerating}}disabled{{/if}}
+      ></textarea>
+      <small>Describe what you want to see in the image</small>
+    </div>
+    
+    <div class="runware-form-group">
+      <label for="negativePrompt">Negative Prompt</label>
+      <textarea 
+        name="negativePrompt" 
+        id="negativePrompt" 
+        placeholder="Describe what you don't want to see..."
+        {{#if isGenerating}}disabled{{/if}}
+      ></textarea>
+      <small>Optional: Describe what you want to avoid in the image</small>
+    </div>
+  </div>
+  
+  <!-- Model Selection -->
+  <div class="runware-form-section">
+    <h3><i class="fas fa-brain"></i> Model Configuration</h3>
+    
+    <div class="runware-form-group">
+      <label for="model">AI Model *</label>
+      <input 
+        type="text" 
+        name="model" 
+        id="model" 
+        value="{{defaultModel}}"
+        placeholder="e.g., runware:100@1"
+        required
+        {{#if isGenerating}}disabled{{/if}}
+      />
+      <small>The AI model to use for generation</small>
+      
+      <div class="model-suggestions">
+        {{#each modelSuggestions}}
+        <button type="button" class="model-suggestion" data-model="{{this.value}}" {{#if ../isGenerating}}disabled{{/if}}>
+          {{this.label}}
+        </button>
+        {{/each}}
+      </div>
+    </div>
+    
+    <!-- Image Dimensions -->
+    <div class="runware-dimensions">
+      <div class="runware-form-group">
+        <label for="width">Width</label>
+        <input 
+          type="number" 
+          name="width" 
+          id="width" 
+          value="{{imageWidth}}"
+          min="256"
+          max="2048"
+          step="64"
+          {{#if isGenerating}}disabled{{/if}}
+        />
+      </div>
+      
+      <div class="runware-form-group">
+        <label for="height">Height</label>
+        <input 
+          type="number" 
+          name="height" 
+          id="height" 
+          value="{{imageHeight}}"
+          min="256"
+          max="2048"
+          step="64"
+          {{#if isGenerating}}disabled{{/if}}
+        />
+      </div>
+    </div>
+    
+    <div class="runware-form-group">
+      <label for="numberResults">Number of Images</label>
+      <input 
+        type="number" 
+        name="numberResults" 
+        id="numberResults" 
+        value="{{numberResults}}"
+        min="1"
+        max="4"
+        step="1"
+        {{#if isGenerating}}disabled{{/if}}
+      />
+      <small>How many images to generate (1-4)</small>
+    </div>
+  </div>
+  
+  <!-- Advanced Options -->
+  <div class="runware-form-section">
+    <h3><i class="fas fa-cog"></i> Advanced Options</h3>
+    
+    <div class="advanced-options">
+      <div class="advanced-toggle collapsed" data-toggle="advanced">
+        <span>Show Advanced Options</span>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      
+      <div class="advanced-content">
+        <!-- LoRA Model -->
+        <div class="runware-form-group">
+          <label>LoRA Model (Optional)</label>
+          <div class="lora-config">
+            <input 
+              type="text" 
+              name="loraModel" 
+              placeholder="e.g., civitai:12345@67890"
+              {{#if isGenerating}}disabled{{/if}}
+            />
+            <div class="runware-form-group" style="margin: 0;">
+              <label for="loraWeight">Weight</label>
+              <input 
+                type="number" 
+                name="loraWeight" 
+                id="loraWeight" 
+                value="1.0"
+                min="0"
+                max="2"
+                step="0.1"
+                {{#if isGenerating}}disabled{{/if}}
+              />
+            </div>
+          </div>
+          <small>Optional LoRA model for style adaptation</small>
+        </div>
+        
+        <!-- Steps -->
+        <div class="runware-form-group">
+          <label for="steps">Inference Steps</label>
+          <input 
+            type="number" 
+            name="steps" 
+            id="steps" 
+            placeholder="20-50 recommended"
+            min="1"
+            max="150"
+            {{#if isGenerating}}disabled{{/if}}
+          />
+          <small>Number of denoising steps (more = higher quality, slower)</small>
+        </div>
+        
+        <!-- CFG Scale -->
+        <div class="runware-form-group">
+          <label for="cfgScale">CFG Scale</label>
+          <input 
+            type="number" 
+            name="cfgScale" 
+            id="cfgScale" 
+            placeholder="7.0 recommended"
+            min="1"
+            max="30"
+            step="0.5"
+            {{#if isGenerating}}disabled{{/if}}
+          />
+          <small>How closely to follow the prompt (higher = more literal)</small>
+        </div>
+        
+        <!-- Seed -->
+        <div class="runware-form-group">
+          <label for="seed">Seed (Optional)</label>
+          <input 
+            type="number" 
+            name="seed" 
+            id="seed" 
+            placeholder="Leave empty for random"
+            {{#if isGenerating}}disabled{{/if}}
+          />
+          <small>For reproducible results, use the same seed</small>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Action Buttons -->
+  <div class="runware-actions">
+    <button type="button" class="cancel-button" {{#if isGenerating}}disabled{{/if}}>
+      <i class="fas fa-times"></i> Cancel
+    </button>
+    <button type="button" class="generate-button" {{#if isGenerating}}disabled{{/if}}>
+      <i class="fas fa-magic"></i> Generate Image
+    </button>
+  </div>
+  
+</form>
+
+<script>
+  // Toggle advanced options
+  document.querySelector('.advanced-toggle')?.addEventListener('click', function() {
+    this.classList.toggle('collapsed');
+    const content = this.nextElementSibling;
+    content.classList.toggle('expanded');
+  });
+</script>

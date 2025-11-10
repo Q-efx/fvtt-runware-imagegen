@@ -1,0 +1,39 @@
+{
+  "id": "runware-image-generator",
+  "title": "Runware AI Image Generator",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "authors": [
+    {
+      "name": "FoundryVTT Module Developer",
+      "flags": {}
+    }
+  ],
+  "description": "Generate AI images for NPC and character actor sheets using Runware AI. Adds a button to actor sheets that opens a prompt dialog for image generation with customizable models and LoRA support.",
+  "esmodules": [
+    "scripts/module.js"
+  ],
+  "styles": [
+    "styles/module.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "relationships": {
+    "systems": [],
+    "requires": []
+  },
+  "socket": false,
+  "url": "",
+  "manifest": "",
+  "download": "",
+  "protected": false,
+  "flags": {}
+}

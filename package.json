@@ -1,0 +1,38 @@
+{
+  "name": "runware-image-generator",
+  "version": "1.0.0",
+  "description": "FoundryVTT module for AI image generation using Runware SDK",
+  "main": "scripts/module.js",
+  "scripts": {
+    "build": "echo 'No build step required for this module'",
+    "lint": "echo 'Add ESLint if needed'",
+    "test": "echo 'No tests configured yet'"
+  },
+  "keywords": [
+    "foundryvtt",
+    "foundry-vtt",
+    "module",
+    "ai",
+    "image-generation",
+    "runware",
+    "character-art",
+    "npc"
+  ],
+  "author": "FoundryVTT Module Developer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/runware-image-generator"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/runware-image-generator/issues"
+  },
+  "homepage": "https://github.com/yourusername/runware-image-generator#readme",
+  "peerDependencies": {
+    "@runware/sdk-js": "^1.1.22"
+  },
+  "devDependencies": {},
+  "engines": {
+    "foundryvtt": "^13.0.0"
+  }
+}

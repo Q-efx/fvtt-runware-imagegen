@@ -1,0 +1,275 @@
+/**
+ * Runware AI Image Generator - Styles
+ */
+
+/* Image generation button in actor sheet header */
+.runware-generate-image {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid var(--color-border-dark-tertiary);
+  background: var(--color-cool-2);
+  color: var(--color-text-dark-primary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+}
+
+.runware-generate-image:hover {
+  background: var(--color-cool-3);
+  box-shadow: 0 0 6px var(--color-shadow-primary);
+}
+
+.runware-generate-image i {
+  margin-right: 4px;
+}
+
+/* Dialog window styling */
+.runware-image-dialog {
+  min-height: 400px;
+}
+
+.runware-image-dialog .window-content {
+  padding: 1rem;
+}
+
+.runware-image-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Form sections */
+.runware-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  border: 1px solid var(--color-border-dark-tertiary);
+}
+
+.runware-form-section h3 {
+  margin: 0 0 0.5rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border-dark-tertiary);
+  font-size: 1.1em;
+  font-weight: bold;
+  color: var(--color-text-dark-primary);
+}
+
+/* Form groups */
+.runware-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.runware-form-group label {
+  font-weight: bold;
+  font-size: 0.9em;
+  color: var(--color-text-dark-primary);
+}
+
+.runware-form-group input,
+.runware-form-group textarea,
+.runware-form-group select {
+  padding: 0.5rem;
+  border: 1px solid var(--color-border-dark-tertiary);
+  background: var(--color-cool-1);
+  color: var(--color-text-light-primary);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+.runware-form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.runware-form-group input:focus,
+.runware-form-group textarea:focus,
+.runware-form-group select:focus {
+  outline: none;
+  border-color: var(--color-border-highlight);
+  box-shadow: 0 0 4px var(--color-shadow-highlight);
+}
+
+.runware-form-group small {
+  color: var(--color-text-dark-secondary);
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+/* Two column layout for dimensions */
+.runware-dimensions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* Model suggestions */
+.model-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.model-suggestion {
+  padding: 0.25rem 0.75rem;
+  background: var(--color-cool-2);
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 3px;
+  font-size: 0.85em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.model-suggestion:hover {
+  background: var(--color-cool-3);
+  border-color: var(--color-border-highlight);
+}
+
+/* Advanced options collapsible */
+.advanced-options {
+  margin-top: 0.5rem;
+}
+
+.advanced-toggle {
+  cursor: pointer;
+  padding: 0.5rem;
+  background: var(--color-cool-2);
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: bold;
+  transition: all 0.2s ease;
+}
+
+.advanced-toggle:hover {
+  background: var(--color-cool-3);
+}
+
+.advanced-toggle i {
+  transition: transform 0.3s ease;
+}
+
+.advanced-toggle.collapsed i {
+  transform: rotate(-90deg);
+}
+
+.advanced-content {
+  margin-top: 0.5rem;
+  display: none;
+}
+
+.advanced-content.expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* LoRA configuration */
+.lora-config {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+/* Action buttons */
+.runware-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border-dark-tertiary);
+}
+
+.runware-actions button {
+  padding: 0.5rem 1.5rem;
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.generate-button {
+  background: var(--color-green);
+  color: white;
+}
+
+.generate-button:hover:not(:disabled) {
+  background: var(--color-green-dark);
+  box-shadow: 0 0 6px var(--color-shadow-primary);
+}
+
+.generate-button:disabled {
+  background: var(--color-cool-2);
+  color: var(--color-text-dark-secondary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cancel-button {
+  background: var(--color-cool-2);
+  color: var(--color-text-dark-primary);
+}
+
+.cancel-button:hover {
+  background: var(--color-cool-3);
+  box-shadow: 0 0 6px var(--color-shadow-primary);
+}
+
+/* Loading state */
+.runware-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(0, 100, 255, 0.1);
+  border: 1px solid rgba(0, 100, 255, 0.3);
+  border-radius: 3px;
+  margin-bottom: 1rem;
+}
+
+.runware-loading i {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .runware-dimensions,
+  .lora-config {
+    grid-template-columns: 1fr;
+  }
+  
+  .model-suggestions {
+    flex-direction: column;
+  }
+  
+  .runware-actions {
+    flex-direction: column;
+  }
+  
+  .runware-actions button {
+    width: 100%;
+  }
+}
