@@ -49,7 +49,6 @@ jobs:
         id: create_version_release
         uses: ncipollo/release-action@v1
         with:
-          token: ${{ secrets.TOKEN }}
           allowUpdates: true
           omitDraftDuringUpdate: true
           omitPrereleaseDuringUpdate: true
