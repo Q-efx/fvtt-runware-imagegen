@@ -42,12 +42,8 @@ jobs:
           npm run build
 
       # Create a folder containing all the module stuff and zip it for the release
-      # - name: Create Zip
-      #   run: zip -r9 ./module.zip build/
-      - uses: actions/checkout@master
-      - uses: montudor/action-zip@v1
-        with:
-          args: zip -r9 ./module.zip build/
+      - name: Create Zip
+        run: zip -r9 ./module.zip build/
 
       - name: Update Release with Files
         id: create_version_release
