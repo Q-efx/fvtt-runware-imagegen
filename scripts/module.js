@@ -9,7 +9,7 @@ import { RunwareImageDialog } from './dialog.js';
 import { ImageFileHandler } from './file-handler.js';
 
 // Module constants
-const MODULE_ID = 'runware-image-generator';
+const MODULE_ID = 'runware-imagegen';
 const MODULE_NAME = 'Runware AI Image Generator';
 
 /**
