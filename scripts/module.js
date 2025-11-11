@@ -94,7 +94,7 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
 
   buttons.unshift({
     label: 'Generate Image',
-    class: 'runware-generate-image',
+    class: 'header-button',
     icon: 'fas fa-palette',
     onclick: () => openImageGenerationDialog(app)
   });
