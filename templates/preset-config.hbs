@@ -1,0 +1,72 @@
+<form class="runware-preset-form" autocomplete="off">
+  <p class="notes">
+    Configure shared Runware presets. Players can apply these presets in the image generation dialog, but only GMs can edit them.
+  </p>
+
+  <div class="preset-list">
+    {{#if presets.length}}
+      {{#each presets}}
+        <fieldset class="preset-row" data-preset-id="{{this.id}}">
+          <legend>{{this.name}}</legend>
+
+          <div class="form-group">
+            <label>Preset Name</label>
+            <input type="text" name="preset-name" value="{{this.name}}" required>
+          </div>
+
+          <div class="form-group">
+            <label>Model *</label>
+            <input type="text" name="preset-model" value="{{this.model}}" placeholder="runware:100@1" required>
+          </div>
+
+          <div class="form-group">
+            <label>LoRA (Optional)</label>
+            <div class="lora-group">
+              <input type="text" name="preset-lora-model" value="{{this.lora.model}}" placeholder="civitai:12345@67890">
+              <input type="number" name="preset-lora-weight" value="{{this.lora.weight}}" min="0" max="2" step="0.1">
+            </div>
+            <small>Specify the LoRA AIR identifier and optional weight (default 1.0).</small>
+          </div>
+
+          <div class="form-group">
+            <label>VAE (Optional)</label>
+            <input type="text" name="preset-vae" value="{{this.vae}}" placeholder="runware:vae@1">
+          </div>
+
+          <div class="form-group embeddings-section">
+            <label>Embeddings (Optional)</label>
+            <div class="embedding-list">
+              {{#if this.embeddings.length}}
+                {{#each this.embeddings}}
+                  <div class="embedding-row" data-embedding-index="{{@index}}">
+                    <input type="text" name="embedding-model" value="{{this.model}}" placeholder="embedding:model">
+                    <input type="number" name="embedding-weight" value="{{this.weight}}" min="0" max="2" step="0.1">
+                    <button type="button" class="remove-embedding"><i class="fas fa-trash"></i></button>
+                  </div>
+                {{/each}}
+              {{else}}
+                <p class="empty">No embeddings configured.</p>
+              {{/if}}
+            </div>
+            <button type="button" class="add-embedding"><i class="fas fa-plus"></i> Add Embedding</button>
+            <small>Embeddings are applied as additional concept weights during generation.</small>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="remove-preset"><i class="fas fa-trash"></i> Remove Preset</button>
+          </div>
+        </fieldset>
+      {{/each}}
+    {{else}}
+      <p class="empty">No presets defined yet. Click "Add Preset" to create one.</p>
+    {{/if}}
+  </div>
+
+  <div class="toolbar">
+    <button type="button" class="add-preset"><i class="fas fa-plus"></i> Add Preset</button>
+  </div>
+
+  <footer class="sheet-footer flexrow">
+    <button type="submit" class="save"><i class="fas fa-save"></i> Save Presets</button>
+  </footer>
+</form>
