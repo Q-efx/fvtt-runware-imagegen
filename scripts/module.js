@@ -94,7 +94,7 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
 
   buttons.unshift({
     label: 'Generate Image',
-    class: 'header-button',
+    class: 'runware-imagegen-header-button',
     icon: 'fas fa-palette',
     onclick: () => openImageGenerationDialog(app)
   });
@@ -142,13 +142,32 @@ async function handleGeneratedImage(actor, imageData) {
       ui.notifications.info(`${MODULE_NAME}: Image saved successfully at ${savedPath}`);
 
       // Ask user if they want to set this as the actor's image
-      const update = await Dialog.confirm({
-        title: 'Set as Actor Image?',
-        content: `<p>Would you like to set this as the actor's portrait image?</p>
-                  <img src="${savedPath}" style="max-width: 100%; border: 1px solid #000;"/>`,
-        yes: () => true,
-        no: () => false,
-        defaultYes: true
+      const update = await new Promise((resolve) => {
+        new Dialog(
+          {
+            title: 'Set as Actor Image?',
+            content: `<p>Would you like to set this as the actor's portrait image?</p>
+                      <img src="${savedPath}" style="max-width: 50%; border: 1px solid #000;"/>`,
+            buttons: {
+              yes: {
+                icon: '<i class="fas fa-check"></i>',
+                label: 'Yes',
+                callback: () => resolve(true),
+              },
+              no: {
+                icon: '<i class="fas fa-times"></i>',
+                label: 'No',
+                callback: () => resolve(false),
+              },
+            },
+            default: 'yes',
+            close: () => resolve(false),
+          },
+          {
+            width: 640,
+            height: 640,
+          },
+        ).render(true);
       });
 
       if (update) {
