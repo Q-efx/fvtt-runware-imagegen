@@ -4,7 +4,7 @@
   "description": "FoundryVTT module for AI image generation using Runware SDK",
   "main": "scripts/module.js",
   "scripts": {
-    "build": "echo 'No build step required for this module'",
+    "build": "node build.mjs",
     "lint": "echo 'Add ESLint if needed'",
     "test": "echo 'No tests configured yet'"
   },
@@ -22,16 +22,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/runware-image-generator"
+    "url": "https://github.com/Q-efx/fvtt-runware-imagegen"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/runware-image-generator/issues"
+    "url": "https://github.com/Q-efx/fvtt-runware-imagegen/issues"
   },
-  "homepage": "https://github.com/yourusername/runware-image-generator#readme",
+  "homepage": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/README.md",
   "peerDependencies": {
     "@runware/sdk-js": "^1.1.22"
   },
-  "devDependencies": {},
+  "devDependencies": {   
+    "@foundryvtt/foundryvtt-cli": "3.0.1",
+    "@types/prompts": "^2.4.9"
+  },
   "engines": {
     "foundryvtt": "^13.0.0"
   }
