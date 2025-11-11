@@ -11,9 +11,10 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
   - Adjustable image dimensions (256x256 to 2048x2048)
   - LoRA model support for style adaptation
   - CFG Scale, inference steps, and seed control
-  - Generate multiple images at once (1-4)
-- 💾 **Organized Storage**: Images are automatically saved to `modules/runware-image-generator/images/actor-name/`
-- 🖼️ **Quick Application**: Option to set generated images as actor portraits immediately
+  - Generate multiple images at once (1-4) with an in-app gallery to pick your favorite result
+- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `modules/runware-imagegen/images/actor-name/` (tokens live in the `/tokens` subfolder)
+- 🖼️ **Quick Application**: Instantly apply the chosen render as the actor portrait, with multi-image preview selection when multiple results are generated
+- 🪄 **Token Ready**: Backgrounds are removed automatically via Runware RMBG v2.0 and saved as autorenamed token images alongside the portrait
 - 🔐 **Secure**: API keys stored securely in world settings
 
 ## Installation
@@ -59,8 +60,8 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 4. **Select a Model**: Choose from the suggested models or enter a custom model ID
 5. **Click "Generate Image"**
 6. **Wait for Generation**: The module will display a loading indicator
-7. **Review the Result**: A dialog will appear asking if you want to set it as the actor's portrait
-8. **Confirm or Save**: The image is saved either way in `modules/runware-image-generator/images/[actor-name]/`
+7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite; the selected image is then shown in a confirmation dialog
+8. **Confirm or Save**: The chosen portrait is stored in `modules/runware-image-generator/images/[actor-name]/` and a matching background-free token is generated automatically in `modules/runware-image-generator/images/[actor-name]/tokens/`
 
 ### Advanced Options
 
@@ -110,15 +111,20 @@ Data/
           image_1.png
           image_2.png
           image_3.png
+          tokens/
+            token_1.png
         npc_shopkeeper/
           image_1.png
           image_2.png
+          tokens/
+            token_1.png
 ```
 
 - Actor names are sanitized (special characters replaced with underscores)
 - Images are numbered sequentially
 - Images persist across sessions
 - You can access these files directly via the FilePicker
+- Background-removed token images are stored alongside portraits under the `tokens/` subdirectory
 
 ## Prompt Tips
 
@@ -195,6 +201,7 @@ This module uses the [Runware SDK](https://github.com/runware/sdk-js) to communi
 - **Multiple Models**: Support for Runware and CivitAI models
 - **LoRA Support**: Style adaptation via LoRA models
 - **Advanced Parameters**: CFG Scale, steps, seed control
+- **Background Removal**: Automated RMBG v2.0 workflow to create transparent token assets
 
 ## Credits
 
@@ -214,6 +221,11 @@ For issues, feature requests, or questions:
 
 ## Changelog
 
+### Version 1.1.0
+- Added multi-result preview gallery so users can pick the best generation before saving
+- Automatic background removal via Runware RMBG v2.0 with token images saved alongside portraits
+- Enlarged image preview dialog for easier inspection of generated art
+
 ### Version 1.0.0
 - Initial release
 - Basic text-to-image generation
@@ -231,7 +243,6 @@ Future planned features:
 - Batch generation for multiple actors
 - Image history browser
 - Preset prompt templates
-- Integration with token images
 - Style library
 
 ---
