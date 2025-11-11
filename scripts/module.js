@@ -127,27 +127,50 @@ async function openImageGenerationDialog(actorSheet) {
 }
 
 /**
- * Handle the generated image - save it and optionally update actor
+ * Handle the generated image(s) - save it and optionally update actor
  * @param {Actor} actor - The actor document
- * @param {Object} imageData - The generated image data from Runware
+ * @param {Array<Object>} imagesData - The generated image data from Runware
  */
-async function handleGeneratedImage(actor, imageData) {
+async function handleGeneratedImage(actor, imagesData) {
   try {
-    ui.notifications.info(`${MODULE_NAME}: Saving generated image...`);
+    if (!imagesData || imagesData.length === 0) {
+      ui.notifications.warn(`${MODULE_NAME}: No images were generated.`);
+      return;
+    }
+
+    let selectedImageData;
+
+    if (imagesData.length === 1) {
+      selectedImageData = imagesData[0];
+    } else {
+      // Show a dialog for the user to pick an image
+      selectedImageData = await showImageSelectionDialog(imagesData);
+    }
+
+    if (!selectedImageData) {
+      ui.notifications.info(`${MODULE_NAME}: No image selected.`);
+      return;
+    }
+
+    ui.notifications.info(`${MODULE_NAME}: Saving selected image...`);
 
     // Save the image using the file handler
-    const savedPath = await ImageFileHandler.saveImage(actor, imageData);
+    const savedPath = await ImageFileHandler.saveImage(actor, selectedImageData);
 
     if (savedPath) {
       ui.notifications.info(`${MODULE_NAME}: Image saved successfully at ${savedPath}`);
 
       // Ask user if they want to set this as the actor's image
+      const previewWidth = selectedImageData?.width
+        ? Math.min(Math.max(Math.round(selectedImageData.width * 0.66), 320), 900)
+        : 640;
+
       const update = await new Promise((resolve) => {
         new Dialog(
           {
             title: 'Set as Actor Image?',
             content: `<p>Would you like to set this as the actor's portrait image?</p>
-                      <img src="${savedPath}" style="max-width: 50%; border: 1px solid #000;"/>`,
+                      <img src="${savedPath}" style="max-width: 100%; border: 1px solid #000;"/>`,
             buttons: {
               yes: {
                 icon: '<i class="fas fa-check"></i>',
@@ -164,8 +187,8 @@ async function handleGeneratedImage(actor, imageData) {
             close: () => resolve(false),
           },
           {
-            width: 640,
-            height: 640,
+            width: previewWidth,
+            height: 'auto',
           },
         ).render(true);
       });
@@ -179,6 +202,100 @@ async function handleGeneratedImage(actor, imageData) {
     console.error(`${MODULE_NAME} | Error handling generated image:`, error);
     ui.notifications.error(`${MODULE_NAME}: Failed to save image - ${error.message}`);
   }
+}
+
+/**
+ * Shows a dialog to select one from multiple generated images.
+ * @param {Array<Object>} imagesData - Array of generated image data.
+ * @returns {Promise<Object|null>} The selected image data, or null if none selected.
+ */
+function showImageSelectionDialog(imagesData) {
+  return new Promise((resolve) => {
+    let selectedImageData = null;
+
+    const getPreviewSrc = (image) => {
+      if (image?.imageBase64Data) {
+        return image.imageBase64Data.startsWith('data:')
+          ? image.imageBase64Data
+          : `data:image/png;base64,${image.imageBase64Data}`;
+      }
+      if (image?.img) return image.img;
+      if (image?.url) return image.url;
+      return '';
+    };
+
+    let content = `
+      <p>Please select an image to keep:</p>
+      <div class="runware-image-selection" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+    `;
+
+    imagesData.forEach((img, index) => {
+      const previewSrc = getPreviewSrc(img);
+      const isDisabled = !previewSrc;
+      const choiceClasses = `image-choice${isDisabled ? ' disabled' : ''}`;
+      const cardStyles = isDisabled
+        ? 'text-align: center; opacity: 0.6; cursor: not-allowed;'
+        : 'text-align: center; cursor: pointer;';
+
+      content += `
+        <div style="${cardStyles}" class="${choiceClasses}" data-index="${index}">
+          ${previewSrc
+            ? `<img src="${previewSrc}" style="max-width: 200px; max-height: 200px; border: 2px solid transparent;" id="image-preview-${index}" />`
+            : `<div style="width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; border: 2px dashed #999;">No preview</div>`}
+          <br/>
+          <span>Image ${index + 1}</span>
+        </div>
+      `;
+    });
+
+    content += '</div>';
+
+    const dialog = new Dialog({
+      title: 'Select an Image',
+      content: content,
+      buttons: {
+        ok: {
+          label: 'Confirm Selection',
+          icon: '<i class="fas fa-check"></i>',
+          callback: () => {
+            if (!selectedImageData) {
+              ui.notifications.warn(`${MODULE_NAME}: Please select an image first.`);
+              return false;
+            }
+            resolve(selectedImageData);
+          }
+        },
+        cancel: {
+          label: 'Cancel',
+          icon: '<i class="fas fa-times"></i>',
+          callback: () => resolve(null)
+        }
+      },
+      default: 'cancel',
+      render: (html) => {
+        const confirmButton = html.closest('.app').find('.dialog-button.ok');
+        confirmButton.prop('disabled', true);
+
+        html.find('.image-choice').not('.disabled').on('click', function() {
+          const index = $(this).data('index');
+          selectedImageData = imagesData[index];
+
+          // Visual indicator for selection
+          html.find('.image-choice img').css('border-color', 'transparent');
+          $(this).find('img').css('border-color', '#ff6400');
+
+          confirmButton.prop('disabled', false);
+        });
+      },
+      close: () => resolve(null)
+    }, {
+      width: 'auto',
+      height: 'auto',
+      classes: ['runware-image-selection-dialog']
+    });
+
+    dialog.render(true);
+  });
 }
 
 // Export module constants for use in other module files

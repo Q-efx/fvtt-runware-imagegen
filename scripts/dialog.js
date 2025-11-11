@@ -195,8 +195,8 @@ export class RunwareImageDialog extends FormApplication {
       throw new Error('No images were generated');
     }
 
-    // Return the first image
-    return images[0];
+    // Return all generated images
+    return images;
   }
 
   /**
