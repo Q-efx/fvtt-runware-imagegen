@@ -13,8 +13,10 @@ export class ImageFileHandler {
    * @param {Object} imageData - The image data from Runware
    * @returns {Promise<string>} The path to the saved image
    */
-  static async saveImage(actor, imageData) {
+  static async saveImage(actor, imageData, options = {}) {
     try {
+      const { type = 'avatar' } = options;
+
       // Get the base64 image data
       let base64Data = imageData.imageBase64Data;
 
@@ -25,17 +27,19 @@ export class ImageFileHandler {
       // Create a clean actor name for the directory
       const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
-      // Create directory path: modules/runware-image-generator/images/actor-name/
-      const dirPath = `modules/${MODULE_ID}/images/${actorNameClean}`;
+      // Create directory path: modules/runware-image-generator/images/actor-name/[*]
+      const baseDirPath = `modules/${MODULE_ID}/images/${actorNameClean}`;
+      const dirPath = type === 'token' ? `${baseDirPath}/tokens` : baseDirPath;
 
       // Ensure directory exists
       await this._ensureDirectory(dirPath);
 
-      // Get the next image number for this actor
-      const imageNumber = await this._getNextImageNumber(dirPath);
+      // Get the next image number for this actor and image type
+      const filenamePrefix = type === 'token' ? 'token_' : 'image_';
+      const imageNumber = await this._getNextImageNumber(dirPath, filenamePrefix);
 
       // Create filename
-      const filename = `image_${imageNumber}.png`;
+      const filename = `${filenamePrefix}${imageNumber}.png`;
       const fullPath = `${dirPath}/${filename}`;
 
       // Convert base64 to blob
@@ -104,7 +108,7 @@ export class ImageFileHandler {
    * @param {string} dirPath - The directory path
    * @returns {Promise<number>} The next image number
    */
-  static async _getNextImageNumber(dirPath) {
+  static async _getNextImageNumber(dirPath, filenamePrefix = 'image_') {
     try {
       // Browse the directory to get existing files
       const result = await FilePicker.browse('data', dirPath);
@@ -113,10 +117,13 @@ export class ImageFileHandler {
         return 1;
       }
 
+      const escapedPrefix = filenamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const filenameRegex = new RegExp(`${escapedPrefix}(\\d+)\\.png$`);
+
       // Find all image files and extract numbers
       const numbers = result.files
         .map(file => {
-          const match = file.match(/image_(\d+)\.png$/);
+          const match = file.match(filenameRegex);
           return match ? parseInt(match[1]) : 0;
         })
         .filter(num => num > 0);

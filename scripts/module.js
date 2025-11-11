@@ -193,14 +193,96 @@ async function handleGeneratedImage(actor, imagesData) {
         ).render(true);
       });
 
+      const actorUpdates = {};
       if (update) {
-        await actor.update({ 'img': savedPath });
-        ui.notifications.info(`${MODULE_NAME}: Actor image updated`);
+        actorUpdates.img = savedPath;
+      }
+
+      // Remove background and save as token image
+      let tokenImageData = await removeBackgroundFromImage(selectedImageData);
+      if (!tokenImageData) {
+        console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
+        tokenImageData = selectedImageData;
+      }
+
+      let tokenImagePath = null;
+      try {
+        tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
+        if (tokenImagePath) {
+          actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+        }
+      } catch (tokenError) {
+        console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
+        ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
+      }
+
+      if (Object.keys(actorUpdates).length > 0) {
+        await actor.update(actorUpdates);
+        if (actorUpdates.img) {
+          ui.notifications.info(`${MODULE_NAME}: Actor image updated`);
+        }
+        if (actorUpdates['prototypeToken.texture.src']) {
+          ui.notifications.info(`${MODULE_NAME}: Token image updated`);
+        }
       }
     }
   } catch (error) {
     console.error(`${MODULE_NAME} | Error handling generated image:`, error);
     ui.notifications.error(`${MODULE_NAME}: Failed to save image - ${error.message}`);
+  }
+}
+
+let backgroundRemovalClient = null;
+let backgroundRemovalClientApiKey = null;
+
+async function getBackgroundRemovalClient() {
+  const apiKey = game.settings.get(MODULE_ID, 'apiKey');
+
+  if (!apiKey) {
+    throw new Error('Runware API key is not configured.');
+  }
+
+  if (!backgroundRemovalClient || backgroundRemovalClientApiKey !== apiKey) {
+    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@latest/+esm');
+    backgroundRemovalClient = await Runware.initialize({ apiKey });
+    backgroundRemovalClientApiKey = apiKey;
+  }
+
+  return backgroundRemovalClient;
+}
+
+async function removeBackgroundFromImage(imageData) {
+  try {
+    const runware = await getBackgroundRemovalClient();
+
+    const inputImage = imageData?.imageUUID
+      ?? imageData?.imageDataURI
+      ?? (imageData?.imageBase64Data
+        ? (imageData.imageBase64Data.startsWith('data:')
+          ? imageData.imageBase64Data
+          : `data:image/png;base64,${imageData.imageBase64Data}`)
+        : imageData?.img);
+
+    if (!inputImage) {
+      throw new Error('No image data available for background removal.');
+    }
+
+    const response = await runware.removeImageBackground({
+      inputImage,
+      model: 'runware:110@1',
+      outputType: 'base64Data',
+      outputFormat: 'PNG',
+    });
+
+    if (!response) {
+      throw new Error('Background removal did not return a result.');
+    }
+
+    return Array.isArray(response) ? response[0] : response;
+  } catch (error) {
+    console.error(`${MODULE_NAME} | Background removal failed:`, error);
+    ui.notifications.error(`${MODULE_NAME}: Background removal failed - ${error.message}`);
+    return null;
   }
 }
 
