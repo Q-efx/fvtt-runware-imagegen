@@ -165,8 +165,59 @@ If you want to modify or develop this module:
    # On Windows (as Administrator)
    mklink /D "C:\FoundryData\modules\runware-image-generator" "C:\path\to\runware-image-generator"
    ```
-3. **Make Changes** to the source files
-4. **Reload** FoundryVTT (or refresh browser) to test changes
+3. **Install Development Dependencies**:
+   ```bash
+   npm install
+   ```
+4. **Set up Pre-commit Hooks** (optional but recommended):
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+5. **Make Changes** to the source files
+6. **Reload** FoundryVTT (or refresh browser) to test changes
+
+### Pre-commit Hooks
+
+This project uses pre-commit hooks to maintain code quality and security. The following hooks are configured:
+
+#### Code Quality Hooks
+- **trailing-whitespace**: Removes trailing whitespace from all files
+- **end-of-file-fixer**: Ensures files end with a newline character
+- **check-yaml**: Validates YAML file syntax
+- **check-json**: Validates JSON file syntax (including `module.json`)
+
+#### Security Hooks
+- **gitleaks**: Scans for secrets, API keys, and other sensitive data before commits
+
+#### Installing Pre-commit
+```bash
+# Install pre-commit globally
+pip install pre-commit
+
+# Install the hooks for this repository
+pre-commit install
+
+# Optional: Run hooks on all files manually
+pre-commit run --all-files
+```
+
+#### How It Works
+- Hooks run automatically before each `git commit`
+- If any hook fails, the commit is blocked
+- Fix the issues and try committing again
+- You can skip hooks with `git commit --no-verify` (not recommended)
+
+#### Example Hook Output
+```bash
+$ git commit -m "Add new feature"
+Trim Trailing Whitespace.................................................Passed
+Fix End of Files.........................................................Passed
+Check Yaml...........................................(no files to check)Skipped
+Check JSON...........................................(no files to check)Skipped
+Detect secrets...........................................................Passed
+[main abc1234] Add new feature
+```
 
 ### File Watching
 For development, you may want to:
