@@ -139,7 +139,7 @@ If you see: `Runware AI Image Generator: Please configure your Runware API key`
 
 ### "Failed to Load Module" Error
 **Cause**: Syntax error in module files or missing dependencies
-**Solution**: 
+**Solution**:
 1. Re-download and reinstall the module
 2. Check browser console for specific error messages
 3. Ensure FoundryVTT is v13 or later
@@ -161,7 +161,7 @@ If you want to modify or develop this module:
    ```bash
    # On Linux/Mac
    ln -s /path/to/runware-image-generator /path/to/FoundryData/modules/
-   
+
    # On Windows (as Administrator)
    mklink /D "C:\FoundryData\modules\runware-image-generator" "C:\path\to\runware-image-generator"
    ```

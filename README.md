@@ -6,7 +6,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 
 - 🎨 **Easy Access**: Generate images directly from actor sheets with a button in the header bar (next to the prototype token button)
 - 🤖 **Multiple AI Models**: Support for various AI models including Stable Diffusion, SDXL, and custom models from CivitAI
-- 🎯 **Advanced Controls**: 
+- 🎯 **Advanced Controls**:
   - Positive and negative prompts
   - Adjustable image dimensions (256x256 to 2048x2048)
   - LoRA model support for style adaptation
@@ -130,8 +130,8 @@ Data/
 
 **Example Good Prompt:**
 ```
-A fierce female warrior with red hair in a ponytail, wearing silver plate armor 
-with gold trim, holding a flaming sword, dramatic lighting, fantasy art style, 
+A fierce female warrior with red hair in a ponytail, wearing silver plate armor
+with gold trim, holding a flaming sword, dramatic lighting, fantasy art style,
 detailed face, heroic pose
 ```
 

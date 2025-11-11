@@ -1,6 +1,6 @@
 /**
  * Runware AI Image Generator Module for FoundryVTT
- * 
+ *
  * This module integrates Runware AI image generation into actor sheets,
  * allowing users to generate character and NPC portraits using AI.
  */
@@ -17,7 +17,7 @@ const MODULE_NAME = 'Runware AI Image Generator';
  */
 Hooks.once('init', async function() {
   console.log(`${MODULE_NAME} | Initializing module`);
-  
+
   // Register module settings
   game.settings.register(MODULE_ID, 'apiKey', {
     name: 'Runware API Key',
@@ -27,7 +27,7 @@ Hooks.once('init', async function() {
     type: String,
     default: '',
   });
-  
+
   game.settings.register(MODULE_ID, 'defaultModel', {
     name: 'Default Model',
     hint: 'The default AI model to use for image generation',
@@ -36,7 +36,7 @@ Hooks.once('init', async function() {
     type: String,
     default: 'runware:100@1',
   });
-  
+
   game.settings.register(MODULE_ID, 'imageWidth', {
     name: 'Image Width',
     hint: 'Default width for generated images',
@@ -45,7 +45,7 @@ Hooks.once('init', async function() {
     type: Number,
     default: 512,
   });
-  
+
   game.settings.register(MODULE_ID, 'imageHeight', {
     name: 'Image Height',
     hint: 'Default height for generated images',
@@ -54,7 +54,7 @@ Hooks.once('init', async function() {
     type: Number,
     default: 512,
   });
-  
+
   game.settings.register(MODULE_ID, 'numberResults', {
     name: 'Number of Results',
     hint: 'How many images to generate per request (1-4)',
@@ -68,7 +68,7 @@ Hooks.once('init', async function() {
       step: 1
     }
   });
-  
+
   console.log(`${MODULE_NAME} | Module initialized`);
 });
 
@@ -77,7 +77,7 @@ Hooks.once('init', async function() {
  */
 Hooks.once('ready', async function() {
   console.log(`${MODULE_NAME} | Module ready`);
-  
+
   // Verify API key is set
   const apiKey = game.settings.get(MODULE_ID, 'apiKey');
   if (!apiKey) {
@@ -91,7 +91,7 @@ Hooks.once('ready', async function() {
 Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
   // Only add button if user has permission to update the actor
   if (!app.document.testUserPermission(game.user, 'OWNER')) return;
-  
+
   buttons.unshift({
     label: 'Generate Image',
     class: 'runware-generate-image',
@@ -106,14 +106,14 @@ Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
  */
 async function openImageGenerationDialog(actorSheet) {
   const apiKey = game.settings.get(MODULE_ID, 'apiKey');
-  
+
   if (!apiKey) {
     ui.notifications.error(`${MODULE_NAME}: Please configure your Runware API key in module settings.`);
     return;
   }
-  
+
   const actor = actorSheet.document;
-  
+
   // Create and render the dialog
   const dialog = new RunwareImageDialog({
     actor: actor,
@@ -122,7 +122,7 @@ async function openImageGenerationDialog(actorSheet) {
       await handleGeneratedImage(actor, imageData);
     }
   });
-  
+
   dialog.render(true);
 }
 
@@ -134,13 +134,13 @@ async function openImageGenerationDialog(actorSheet) {
 async function handleGeneratedImage(actor, imageData) {
   try {
     ui.notifications.info(`${MODULE_NAME}: Saving generated image...`);
-    
+
     // Save the image using the file handler
     const savedPath = await ImageFileHandler.saveImage(actor, imageData);
-    
+
     if (savedPath) {
       ui.notifications.info(`${MODULE_NAME}: Image saved successfully at ${savedPath}`);
-      
+
       // Ask user if they want to set this as the actor's image
       const update = await Dialog.confirm({
         title: 'Set as Actor Image?',
@@ -150,7 +150,7 @@ async function handleGeneratedImage(actor, imageData) {
         no: () => false,
         defaultYes: true
       });
-      
+
       if (update) {
         await actor.update({ 'img': savedPath });
         ui.notifications.info(`${MODULE_NAME}: Actor image updated`);

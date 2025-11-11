@@ -260,15 +260,15 @@
   .lora-config {
     grid-template-columns: 1fr;
   }
-  
+
   .model-suggestions {
     flex-direction: column;
   }
-  
+
   .runware-actions {
     flex-direction: column;
   }
-  
+
   .runware-actions button {
     width: 100%;
   }

@@ -31,8 +31,8 @@ Start reading here: `scripts/module.js`
 
 ### How It Works
 ```
-User clicks button → Dialog opens → Form submitted → 
-Runware API called → Image received → File saved → 
+User clicks button → Dialog opens → Form submitted →
+Runware API called → Image received → File saved →
 User confirms → Actor updated
 ```
 
@@ -111,13 +111,13 @@ game.settings.register(MODULE_ID, 'imageWidth', {
 
 ### Good Prompts
 ```
-"A wise elderly wizard with long white beard, blue robes, holding a staff, 
+"A wise elderly wizard with long white beard, blue robes, holding a staff,
 fantasy art style, detailed face, magical atmosphere"
 
-"Female rogue in leather armor, hooded cloak, daggers on belt, 
+"Female rogue in leather armor, hooded cloak, daggers on belt,
 standing in shadows, fantasy character art"
 
-"Muscular dwarf warrior with red braided beard, plate armor, 
+"Muscular dwarf warrior with red braided beard, plate armor,
 battle axe, determined expression, D&D character portrait"
 ```
 

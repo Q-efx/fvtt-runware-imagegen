@@ -1,8 +1,8 @@
-import { compilePack } from "@foundryvtt/foundryvtt-cli";
 import { existsSync } from "fs";
 import fs from "fs/promises";
 import path from "path";
 
+const process = import('process');
 // Clean output directory, or create build directory
 const outDir = path.resolve(process.cwd(), "build");
 if (existsSync(outDir)) {
