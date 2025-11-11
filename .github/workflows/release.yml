@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@master
       - uses: montudor/action-zip@v1
         with:
-          args: zip -r module.zip build
+          args: zip -r9 ./module.zip build/
 
       - name: Update Release with Files
         id: create_version_release
