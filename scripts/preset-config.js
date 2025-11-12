@@ -137,6 +137,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       id: preset.id ?? foundry.utils.randomID(),
       name: preset.name ?? '',
       model: preset.model ?? '',
+      width: this._coerceDimension(preset.width),
+      height: this._coerceDimension(preset.height),
       lora: {
         model: preset.lora?.model ?? '',
         weight: this._coerceNumber(preset.lora?.weight, 1),
@@ -159,6 +161,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       id: preset.id,
       name: preset.name,
       model: preset.model,
+      width: Number.isFinite(preset.width) ? preset.width : '',
+      height: Number.isFinite(preset.height) ? preset.height : '',
       lora: {
         model: preset.lora?.model ?? '',
         weight: preset.lora?.weight ?? 1,
@@ -189,6 +193,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       this._normalizePreset({
         name: 'New Preset',
         model: '',
+        width: null,
+        height: null,
         lora: { model: '', weight: 1, trigger: '' },
         vae: '',
         embeddings: []
@@ -223,6 +229,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     const presetId = row.dataset.presetId || foundry.utils.randomID();
     const nameInput = row.querySelector('input[name="preset-name"]');
     const modelInput = row.querySelector('input[name="preset-model"]');
+  const widthInput = row.querySelector('input[name="preset-width"]');
+  const heightInput = row.querySelector('input[name="preset-height"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
     const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
@@ -246,6 +254,16 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       name,
       model
     };
+
+    const width = this._coerceDimension(widthInput?.value);
+    if (width) {
+      preset.width = width;
+    }
+
+    const height = this._coerceDimension(heightInput?.value);
+    if (height) {
+      preset.height = height;
+    }
 
     const loraModel = loraModelInput?.value.trim() ?? '';
     const loraTrigger = loraTriggerInput?.value.trim() ?? '';
@@ -281,5 +299,11 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     }
 
     return preset;
+  }
+
+  _coerceDimension(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return Math.round(num);
   }
 }

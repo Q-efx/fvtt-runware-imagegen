@@ -20,6 +20,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     this.isGenerating = false;
     this.availablePresets = [];
     this.appliedPresetId = null;
+    this._boundPresetSelect = null;
+    this._handlePresetSelectChange = this._handlePresetSelectChange.bind(this);
     this._handlePresetsUpdated = this._handlePresetsUpdated.bind(this);
     Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
   }
@@ -68,21 +70,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const presetsSetting = game.settings.get(MODULE_ID, 'generationPresets') ?? [];
     const presets = Array.isArray(presetsSetting)
       ? presetsSetting
-          .filter((preset) => preset && preset.name && preset.model)
-          .map((preset) => ({
-            id: preset.id ?? foundry.utils.randomID(),
-            name: preset.name,
-            model: preset.model,
-            lora: preset.lora
-              ? {
-                  model: preset.lora.model ?? '',
-                  weight: preset.lora.weight ?? 1,
-                  trigger: preset.lora.trigger ?? ''
-                }
-              : null,
-            vae: preset.vae ?? '',
-            embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
-          }))
+          .map((preset) => this._mapPreset(preset))
+          .filter((preset) => preset !== null)
           .sort((a, b) => a.name.localeCompare(b.name))
       : [];
 
@@ -137,25 +126,25 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     }
 
     // Get form data
-  const form = target?.closest?.('form') ?? this.form ?? this.element;
-  if (!(form instanceof HTMLFormElement)) return;
+    const form = target?.closest?.('form') ?? this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
 
-  const rawFormData = new FormData(form);
-  const formData = Object.fromEntries(rawFormData.entries());
+    const rawFormData = new FormData(form);
+    const formData = Object.fromEntries(rawFormData.entries());
 
     // Validate inputs
-  const promptField = form.elements.namedItem?.('prompt');
-  const promptInput = promptField instanceof HTMLTextAreaElement ? promptField : form.querySelector('textarea[name="prompt"]');
-  const promptTextRaw = typeof promptInput?.value === 'string' ? promptInput.value : formData.prompt;
+    const promptField = form.elements.namedItem?.('prompt');
+    const promptInput = promptField instanceof HTMLTextAreaElement ? promptField : form.querySelector('textarea[name="prompt"]');
+    const promptTextRaw = typeof promptInput?.value === 'string' ? promptInput.value : formData.prompt;
     const promptText = typeof promptTextRaw === 'string' ? promptTextRaw.trim() : '';
     if (!promptText) {
       ui.notifications.error(`${MODULE_NAME}: Please enter a prompt`);
       return;
     }
 
-  const modelField = form.elements.namedItem?.('model');
-  const modelInput = modelField instanceof HTMLInputElement ? modelField : form.querySelector('input[name="model"]');
-  const modelValueRaw = typeof modelInput?.value === 'string' ? modelInput.value : formData.model;
+    const modelField = form.elements.namedItem?.('model');
+    const modelInput = modelField instanceof HTMLInputElement ? modelField : form.querySelector('input[name="model"]');
+    const modelValueRaw = typeof modelInput?.value === 'string' ? modelInput.value : formData.model;
     const modelValue = typeof modelValueRaw === 'string' ? modelValueRaw.trim() : '';
     if (!modelValue) {
       ui.notifications.error(`${MODULE_NAME}: Please enter a model`);
@@ -165,11 +154,11 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     formData.prompt = promptText;
     formData.model = modelValue;
 
-      const negativeField = form.elements.namedItem?.('negativePrompt');
-      const negativePromptInput = negativeField instanceof HTMLTextAreaElement ? negativeField : form.querySelector('textarea[name="negativePrompt"]');
-      if (negativePromptInput) {
-        formData.negativePrompt = negativePromptInput.value.trim();
-      }
+    const negativeField = form.elements.namedItem?.('negativePrompt');
+    const negativePromptInput = negativeField instanceof HTMLTextAreaElement ? negativeField : form.querySelector('textarea[name="negativePrompt"]');
+    if (negativePromptInput) {
+      formData.negativePrompt = negativePromptInput.value.trim();
+    }
     // Start generation
     this.isGenerating = true;
     this.render(false); // Re-render to show loading state
@@ -213,12 +202,26 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   async _onPresetChange(event, target) {
     const select = target?.closest('select');
     const presetId = select?.value ?? '';
+    this._applyPresetSelection(presetId);
+  }
+
+  _handlePresetSelectChange(event) {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement)) return;
+    this._applyPresetSelection(select.value ?? '');
+  }
+
+  _applyPresetSelection(presetId, { silent = false } = {}) {
     const preset = this._findPresetById(presetId);
     if (!preset) {
       this.appliedPresetId = null;
+      const select = this._boundPresetSelect ?? this.element?.querySelector?.('select[name="presetSelection"]');
+      if (select instanceof HTMLSelectElement) {
+        select.value = '';
+      }
       return;
     }
-    this._applyPresetToForm(preset);
+    this._applyPresetToForm(preset, { silent });
   }
 
   /**
@@ -229,10 +232,10 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     return this.availablePresets.find((preset) => preset.id === presetId) ?? null;
   }
 
-  _applyPresetToForm(preset) {
+  _applyPresetToForm(preset, { silent = false } = {}) {
     if (!preset) return;
 
-    const form = this.element;
+    const form = this.form ?? this.element;
     if (!(form instanceof HTMLElement)) return;
 
     this.appliedPresetId = preset.id;
@@ -254,7 +257,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const loraWeight = preset.lora?.weight ?? 1;
     const loraTrigger = preset.lora?.trigger ?? '';
     if (loraModelInput) loraModelInput.value = loraModel;
-    if (loraWeightInput) loraWeightInput.value = loraWeight;
+    if (loraWeightInput) loraWeightInput.value = `${loraWeight}`;
     if (loraTriggerInput) loraTriggerInput.value = loraTrigger;
 
     const vaeInput = form.querySelector('input[name="vaeModel"]');
@@ -262,12 +265,24 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       vaeInput.value = preset.vae ?? '';
     }
 
+    const widthInput = form.querySelector('input[name="width"]');
+    if (widthInput && Number.isFinite(preset.width) && preset.width > 0) {
+      widthInput.value = `${preset.width}`;
+    }
+
+    const heightInput = form.querySelector('input[name="height"]');
+    if (heightInput && Number.isFinite(preset.height) && preset.height > 0) {
+      heightInput.value = `${preset.height}`;
+    }
+
     const embeddingsField = form.querySelector('textarea[name="embeddings"]');
     if (embeddingsField) {
       embeddingsField.value = this._formatEmbeddingsForInput(preset.embeddings);
     }
 
-    ui.notifications.info(`${MODULE_NAME}: Applied preset "${preset.name}".`);
+    if (!silent) {
+      ui.notifications.info(`${MODULE_NAME}: Applied preset "${preset.name}".`);
+    }
   }
 
   async _onToggleAdvanced(event, target) {
@@ -284,6 +299,32 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const content = toggle.nextElementSibling;
     toggle.classList.toggle('collapsed');
     content?.classList.toggle('expanded');
+  }
+
+  _mapPreset(rawPreset) {
+    if (!rawPreset || !rawPreset.name || !rawPreset.model) {
+      return null;
+    }
+
+    const width = Number(rawPreset.width);
+    const height = Number(rawPreset.height);
+
+    return {
+      id: rawPreset.id ?? foundry.utils.randomID(),
+      name: rawPreset.name,
+      model: rawPreset.model,
+      width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+      height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      lora: rawPreset.lora
+        ? {
+            model: rawPreset.lora.model ?? '',
+            weight: rawPreset.lora.weight ?? 1,
+            trigger: rawPreset.lora.trigger ?? ''
+          }
+        : null,
+      vae: rawPreset.vae ?? '',
+      embeddings: Array.isArray(rawPreset.embeddings) ? rawPreset.embeddings : []
+    };
   }
 
   _formatEmbeddingsForInput(embeddings) {
@@ -325,21 +366,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   _handlePresetsUpdated(value) {
     if (Array.isArray(value)) {
       this.availablePresets = value
-        .filter((preset) => preset && preset.name && preset.model)
-        .map((preset) => ({
-          id: preset.id ?? foundry.utils.randomID(),
-          name: preset.name,
-          model: preset.model,
-          lora: preset.lora
-            ? {
-                model: preset.lora.model ?? '',
-                weight: preset.lora.weight ?? 1,
-                trigger: preset.lora.trigger ?? ''
-              }
-            : null,
-          vae: preset.vae ?? '',
-          embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
-        }))
+        .map((preset) => this._mapPreset(preset))
+        .filter((preset) => preset !== null)
         .sort((a, b) => a.name.localeCompare(b.name));
 
       if (this.appliedPresetId && !this.availablePresets.some((preset) => preset.id === this.appliedPresetId)) {
@@ -352,8 +380,42 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     }
   }
 
+  async _onRender(context, options) {
+    if (super._onRender) await super._onRender(context, options);
+    this._bindPresetSelect();
+    if (this.appliedPresetId) {
+      this._applyPresetSelection(this.appliedPresetId, { silent: true });
+    }
+  }
+
+  _bindPresetSelect() {
+    if (this._boundPresetSelect) {
+      this._boundPresetSelect.removeEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = null;
+    }
+
+    const form = this.form ?? this.element;
+    const presetField = form instanceof HTMLFormElement
+      ? form.elements.namedItem?.('presetSelection')
+      : null;
+    const select = presetField instanceof HTMLSelectElement
+      ? presetField
+      : form instanceof HTMLElement
+        ? form.querySelector('select[name="presetSelection"]')
+        : null;
+
+    if (select instanceof HTMLSelectElement) {
+      select.addEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = select;
+    }
+  }
+
   async close(options) {
     Hooks.off('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
+    if (this._boundPresetSelect) {
+      this._boundPresetSelect.removeEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = null;
+    }
     return super.close(options);
   }
 

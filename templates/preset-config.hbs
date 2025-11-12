@@ -19,6 +19,15 @@
             <input type="text" name="preset-model" value="{{this.model}}" placeholder="runware:100@1" required>
           </div>
 
+          <div class="form-group dimension-group">
+            <label>Image Dimensions (Optional)</label>
+            <div class="dimension-inputs">
+              <input type="number" name="preset-width" value="{{this.width}}" placeholder="Width" min="64" max="2048" step="64">
+              <input type="number" name="preset-height" value="{{this.height}}" placeholder="Height" min="64" max="2048" step="64">
+            </div>
+            <small>Specify width and height overrides when this preset is applied.</small>
+          </div>
+
           <div class="form-group">
             <label>LoRA (Optional)</label>
             <div class="lora-group">
