@@ -51,7 +51,13 @@ export class RunwareImageDialog extends FormApplication {
             id: preset.id ?? foundry.utils.randomID(),
             name: preset.name,
             model: preset.model,
-            lora: preset.lora ?? null,
+            lora: preset.lora
+              ? {
+                  model: preset.lora.model ?? '',
+                  weight: preset.lora.weight ?? 1,
+                  trigger: preset.lora.trigger ?? ''
+                }
+              : null,
             vae: preset.vae ?? '',
             embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
           }))
@@ -131,10 +137,13 @@ export class RunwareImageDialog extends FormApplication {
 
     const loraModelField = html.find('input[name="loraModel"]');
     const loraWeightField = html.find('input[name="loraWeight"]');
+    const loraTriggerField = html.find('input[name="loraTrigger"]');
     const loraModel = preset.lora?.model ?? '';
     const loraWeight = preset.lora?.weight ?? 1;
+    const loraTrigger = preset.lora?.trigger ?? '';
     loraModelField.val(loraModel);
     loraWeightField.val(loraWeight);
+    loraTriggerField.val(loraTrigger);
 
     html.find('input[name="vaeModel"]').val(preset.vae ?? '');
 
@@ -188,7 +197,13 @@ export class RunwareImageDialog extends FormApplication {
           id: preset.id ?? foundry.utils.randomID(),
           name: preset.name,
           model: preset.model,
-          lora: preset.lora ?? null,
+          lora: preset.lora
+            ? {
+                model: preset.lora.model ?? '',
+                weight: preset.lora.weight ?? 1,
+                trigger: preset.lora.trigger ?? ''
+              }
+            : null,
           vae: preset.vae ?? '',
           embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
         }))
@@ -286,9 +301,23 @@ export class RunwareImageDialog extends FormApplication {
       this.runware = await Runware.initialize({ apiKey: this.apiKey });
     }
 
+  const basePrompt = (formData.prompt ?? '').trim();
+    const loraModel = formData.loraModel?.trim() ?? '';
+    const loraTrigger = formData.loraTrigger?.trim() ?? '';
+    let positivePrompt = basePrompt;
+
+    if (loraModel && loraTrigger) {
+      // Ensure the LoRA trigger is included so the model activates as expected.
+      const normalizedPrompt = positivePrompt.toLowerCase();
+      const normalizedTrigger = loraTrigger.toLowerCase();
+      if (!normalizedPrompt.includes(normalizedTrigger)) {
+        positivePrompt = `${loraTrigger}, ${positivePrompt}`;
+      }
+    }
+
     // Prepare the request parameters
     const requestParams = {
-      positivePrompt: formData.prompt,
+      positivePrompt: positivePrompt,
       model: formData.model,
       width: parseInt(formData.width) || 512,
       height: parseInt(formData.height) || 512,
@@ -303,9 +332,9 @@ export class RunwareImageDialog extends FormApplication {
     }
 
     // Add LoRA if provided
-    if (formData.loraModel && formData.loraModel.trim() !== '') {
+    if (loraModel) {
       requestParams.lora = [{
-        model: formData.loraModel,
+        model: loraModel,
         weight: parseFloat(formData.loraWeight) || 1.0
       }];
     }

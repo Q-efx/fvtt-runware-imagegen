@@ -166,6 +166,12 @@
   grid-template-columns: 2fr 1fr;
   gap: 0.5rem;
 }
+.runware-preset-form .lora-trigger-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
 .runware-preset-form .embedding-list {
   display: flex;
   flex-direction: column;

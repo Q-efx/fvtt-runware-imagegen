@@ -184,7 +184,17 @@
               />
             </div>
           </div>
-          <small>Optional LoRA model for style adaptation</small>
+          <div class="runware-form-group" style="margin: 0;">
+            <label for="loraTrigger">Trigger Word</label>
+            <input
+              type="text"
+              name="loraTrigger"
+              id="loraTrigger"
+              placeholder="e.g., style keyword"
+              {{#if isGenerating}}disabled{{/if}}
+            />
+          </div>
+          <small>Optional LoRA model for style adaptation. Trigger word automatically prepends to the positive prompt when provided.</small>
         </div>
 
         <div class="runware-form-group">

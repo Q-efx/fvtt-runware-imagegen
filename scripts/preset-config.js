@@ -102,7 +102,8 @@ export class RunwarePresetConfig extends FormApplication {
       model: preset.model ?? '',
       lora: {
         model: preset.lora?.model ?? '',
-        weight: this._coerceNumber(preset.lora?.weight, 1)
+        weight: this._coerceNumber(preset.lora?.weight, 1),
+        trigger: preset.lora?.trigger ?? ''
       },
       vae: preset.vae ?? '',
       embeddings: Array.isArray(preset.embeddings)
@@ -123,7 +124,8 @@ export class RunwarePresetConfig extends FormApplication {
       model: preset.model,
       lora: {
         model: preset.lora?.model ?? '',
-        weight: preset.lora?.weight ?? 1
+        weight: preset.lora?.weight ?? 1,
+        trigger: preset.lora?.trigger ?? ''
       },
       vae: preset.vae ?? '',
       embeddings: Array.isArray(preset.embeddings)
@@ -150,7 +152,7 @@ export class RunwarePresetConfig extends FormApplication {
       this._normalizePreset({
         name: 'New Preset',
         model: '',
-        lora: { model: '', weight: 1 },
+        lora: { model: '', weight: 1, trigger: '' },
         vae: '',
         embeddings: []
       })
@@ -186,6 +188,7 @@ export class RunwarePresetConfig extends FormApplication {
     const modelInput = row.querySelector('input[name="preset-model"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
+  const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
     const vaeInput = row.querySelector('input[name="preset-vae"]');
 
     const name = nameInput?.value.trim() ?? '';
@@ -208,10 +211,12 @@ export class RunwarePresetConfig extends FormApplication {
     };
 
     const loraModel = loraModelInput?.value.trim() ?? '';
+    const loraTrigger = loraTriggerInput?.value.trim() ?? '';
     if (loraModel) {
       preset.lora = {
         model: loraModel,
-        weight: this._coerceNumber(loraWeightInput?.value, 1)
+        weight: this._coerceNumber(loraWeightInput?.value, 1),
+        trigger: loraTrigger
       };
     }
 

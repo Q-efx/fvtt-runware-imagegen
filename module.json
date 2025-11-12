@@ -34,6 +34,8 @@
   "url": "",
   "manifest": "",
   "download": "",
+  "readme": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/README.md",
+  "changelog": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/CHANGELOG.md",
   "protected": false,
   "flags": {}
 }
