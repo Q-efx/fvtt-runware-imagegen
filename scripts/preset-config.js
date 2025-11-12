@@ -188,7 +188,7 @@ export class RunwarePresetConfig extends FormApplication {
     const modelInput = row.querySelector('input[name="preset-model"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
-  const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
+    const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
     const vaeInput = row.querySelector('input[name="preset-vae"]');
 
     const name = nameInput?.value.trim() ?? '';
