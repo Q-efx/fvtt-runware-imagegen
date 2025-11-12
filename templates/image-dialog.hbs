@@ -52,11 +52,11 @@
     <div class="runware-form-group preset-selector">
       <label for="presetSelection">Preset</label>
       <div class="preset-controls">
-        <select name="presetSelection" id="presetSelection" {{#if isGenerating}}disabled{{/if}}>
+        <select name="presetSelection" id="presetSelection" data-action="presetChange" {{#if isGenerating}}disabled{{/if}}>
           {{selectOptions presetOptions selected=appliedPresetId blank="Select a preset..."}}
         </select>
         {{#if canManagePresets}}
-        <button type="button" class="manage-presets" title="Manage presets" {{#if isGenerating}}disabled{{/if}}>
+        <button type="button" data-action="managePresets" title="Manage presets" {{#if isGenerating}}disabled{{/if}}>
           <i class="fas fa-sliders-h"></i>
         </button>
         {{/if}}
@@ -67,7 +67,7 @@
       {{#if canManagePresets}}
       <div class="runware-form-group preset-selector">
         <label>Presets</label>
-        <button type="button" class="manage-presets" {{#if isGenerating}}disabled{{/if}}>
+        <button type="button" data-action="managePresets" {{#if isGenerating}}disabled{{/if}}>
           <i class="fas fa-sliders-h"></i> Configure Presets
         </button>
         <small>No presets configured yet. Click to add some for your players.</small>
@@ -90,7 +90,7 @@
 
       <div class="model-suggestions">
         {{#each modelSuggestions}}
-        <button type="button" class="model-suggestion" data-model="{{this.value}}" {{#if ../isGenerating}}disabled{{/if}}>
+        <button type="button" data-action="modelSuggestion" data-model="{{this.value}}" {{#if ../isGenerating}}disabled{{/if}}>
           {{this.label}}
         </button>
         {{/each}}
@@ -149,7 +149,7 @@
     <h3><i class="fas fa-cog"></i> Advanced Options</h3>
 
     <div class="advanced-options">
-      <div class="advanced-toggle collapsed" data-toggle="advanced">
+      <div class="advanced-toggle collapsed" data-action="toggleAdvanced" data-toggle="advanced" role="button" tabindex="0">
         <span>Show Advanced Options</span>
         <i class="fas fa-chevron-down"></i>
       </div>
@@ -264,21 +264,12 @@
 
   <!-- Action Buttons -->
   <div class="runware-actions">
-    <button type="button" class="cancel-button" {{#if isGenerating}}disabled{{/if}}>
+    <button type="button" data-action="cancel" {{#if isGenerating}}disabled{{/if}}>
       <i class="fas fa-times"></i> Cancel
     </button>
-    <button type="button" class="generate-button" {{#if isGenerating}}disabled{{/if}}>
+    <button type="button" data-action="generate" {{#if isGenerating}}disabled{{/if}}>
       <i class="fas fa-magic"></i> Generate Image
     </button>
   </div>
 
 </form>
-
-<script>
-  // Toggle advanced options
-  document.querySelector('.advanced-toggle')?.addEventListener('click', function() {
-    this.classList.toggle('collapsed');
-    const content = this.nextElementSibling;
-    content.classList.toggle('expanded');
-  });
-</script>
