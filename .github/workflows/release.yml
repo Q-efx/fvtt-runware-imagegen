@@ -64,3 +64,4 @@ jobs:
         with:
           package-token: ${{ env.PACKAGE_TOKEN }}
           manifest-url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.json
+          notes-url: https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/CHANGELOG.md

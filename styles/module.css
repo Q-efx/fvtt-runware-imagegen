@@ -106,12 +106,109 @@
   font-size: 0.85em;
   font-style: italic;
 }
+.preset-selector .preset-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.preset-selector select {
+  flex: 1 1 auto;
+}
+.preset-selector .manage-presets {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border-dark-tertiary);
+  background: var(--color-cool-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.preset-selector .manage-presets:hover {
+  background: var(--color-cool-3);
+}
 
 /* Two column layout for dimensions */
 .runware-dimensions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+/* Preset manager form */
+.runware-preset-config .window-content {
+  padding: 1rem;
+}
+.runware-preset-form .notes {
+  margin-top: 0;
+  color: var(--color-text-dark-secondary);
+}
+.runware-preset-form .preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.runware-preset-form fieldset.preset-row {
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 4px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.1);
+}
+.runware-preset-form fieldset.preset-row legend {
+  padding: 0 0.5rem;
+  font-weight: bold;
+}
+.runware-preset-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.runware-preset-form .lora-group {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.5rem;
+}
+.runware-preset-form .lora-trigger-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+.runware-preset-form .embedding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.runware-preset-form .embedding-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.runware-preset-form .embedding-row button,
+.runware-preset-form .add-embedding,
+.runware-preset-form .remove-preset,
+.runware-preset-form .add-preset,
+.runware-preset-form .save {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 3px;
+  background: var(--color-cool-2);
+  cursor: pointer;
+}
+.runware-preset-form .embedding-row button:hover,
+.runware-preset-form .add-embedding:hover,
+.runware-preset-form .remove-preset:hover,
+.runware-preset-form .add-preset:hover,
+.runware-preset-form .save:hover {
+  background: var(--color-cool-3);
+}
+.runware-preset-form .form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.runware-preset-form .toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
 }
 
 /* Model suggestions */

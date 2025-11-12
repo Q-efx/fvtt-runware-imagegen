@@ -48,6 +48,38 @@
   <div class="runware-form-section">
     <h3><i class="fas fa-brain"></i> Model Configuration</h3>
 
+    {{#if presets.length}}
+    <div class="runware-form-group preset-selector">
+      <label for="presetSelection">Preset</label>
+      <div class="preset-controls">
+        {{#select appliedPresetId}}
+        <select name="presetSelection" id="presetSelection" {{#if isGenerating}}disabled{{/if}}>
+          <option value="">Select a preset...</option>
+          {{#each presets}}
+          <option value="{{this.id}}">{{this.name}}</option>
+          {{/each}}
+        </select>
+        {{/select}}
+        {{#if canManagePresets}}
+        <button type="button" class="manage-presets" title="Manage presets" {{#if isGenerating}}disabled{{/if}}>
+          <i class="fas fa-sliders-h"></i>
+        </button>
+        {{/if}}
+      </div>
+      <small>Prefill model, LoRA, VAE, and embeddings using a preset defined by the GM.</small>
+    </div>
+    {{else}}
+      {{#if canManagePresets}}
+      <div class="runware-form-group preset-selector">
+        <label>Presets</label>
+        <button type="button" class="manage-presets" {{#if isGenerating}}disabled{{/if}}>
+          <i class="fas fa-sliders-h"></i> Configure Presets
+        </button>
+        <small>No presets configured yet. Click to add some for your players.</small>
+      </div>
+      {{/if}}
+    {{/if}}
+
     <div class="runware-form-group">
       <label for="model">AI Model *</label>
       <input
@@ -152,7 +184,40 @@
               />
             </div>
           </div>
-          <small>Optional LoRA model for style adaptation</small>
+          <div class="runware-form-group" style="margin: 0;">
+            <label for="loraTrigger">Trigger Word</label>
+            <input
+              type="text"
+              name="loraTrigger"
+              id="loraTrigger"
+              placeholder="e.g., style keyword"
+              {{#if isGenerating}}disabled{{/if}}
+            />
+          </div>
+          <small>Optional LoRA model for style adaptation. Trigger word automatically prepends to the positive prompt when provided.</small>
+        </div>
+
+        <div class="runware-form-group">
+          <label for="vaeModel">VAE (Optional)</label>
+          <input
+            type="text"
+            name="vaeModel"
+            id="vaeModel"
+            placeholder="e.g., runware:vae@1"
+            {{#if isGenerating}}disabled{{/if}}
+          />
+          <small>Override the default VAE used with the chosen model.</small>
+        </div>
+
+        <div class="runware-form-group">
+          <label for="embeddings">Embeddings (Optional)</label>
+          <textarea
+            name="embeddings"
+            id="embeddings"
+            placeholder="One embedding per line. Optionally append :weight, e.g., concept:0.8"
+            {{#if isGenerating}}disabled{{/if}}
+          ></textarea>
+          <small>Embeddings adjust the prompt with additional learned concepts.</small>
         </div>
 
         <!-- Steps -->

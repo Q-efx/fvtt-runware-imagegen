@@ -7,10 +7,8 @@
 
 import { RunwareImageDialog } from './dialog.js';
 import { ImageFileHandler } from './file-handler.js';
-
-// Module constants
-const MODULE_ID = 'runware-imagegen';
-const MODULE_NAME = 'Runware AI Image Generator';
+import { RunwarePresetConfig } from './preset-config.js';
+import { MODULE_ID, MODULE_NAME } from './constants.js';
 
 /**
  * Initialize the module
@@ -67,6 +65,25 @@ Hooks.once('init', async function() {
       max: 4,
       step: 1
     }
+  });
+
+  game.settings.register(MODULE_ID, 'generationPresets', {
+    name: 'Runware Generation Presets',
+    hint: 'Collection of reusable model presets shared with all users.',
+    scope: 'world',
+    config: false,
+    type: Array,
+    default: [],
+    onChange: (value) => Hooks.callAll('runware-imagegen.presetsUpdated', value)
+  });
+
+  game.settings.registerMenu(MODULE_ID, 'presetManager', {
+    name: 'Manage Generation Presets',
+    label: 'Manage Presets',
+    hint: 'Define model presets that are available to all players.',
+    icon: 'fas fa-sliders-h',
+    type: RunwarePresetConfig,
+    restricted: true
   });
 
   console.log(`${MODULE_NAME} | Module initialized`);

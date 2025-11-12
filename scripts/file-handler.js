@@ -4,7 +4,7 @@
  * Utilities for saving generated images to the FoundryVTT data directory
  */
 
-import { MODULE_ID, MODULE_NAME } from './module.js';
+import { MODULE_ID, MODULE_NAME } from './constants.js';
 
 export class ImageFileHandler {
   /**

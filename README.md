@@ -6,6 +6,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 
 - 🎨 **Easy Access**: Generate images directly from actor sheets with a button in the header bar (next to the prototype token button)
 - 🤖 **Multiple AI Models**: Support for various AI models including Stable Diffusion, SDXL, and custom models from CivitAI
+- 🧰 **GM Presets**: Game Masters can curate shared presets (model, LoRA, VAE, embeddings) for players to apply instantly
 - 🎯 **Advanced Controls**:
   - Positive and negative prompts
   - Adjustable image dimensions (256x256 to 2048x2048)
@@ -225,6 +226,7 @@ For issues, feature requests, or questions:
 - Added multi-result preview gallery so users can pick the best generation before saving
 - Automatic background removal via Runware RMBG v2.0 with token images saved alongside portraits
 - Enlarged image preview dialog for easier inspection of generated art
+- Introduced GM-managed presets covering model, LoRA, VAE, and embeddings shared with players
 
 ### Version 1.0.0
 - Initial release

@@ -1,14 +1,16 @@
 {
   "id": "runware-imagegen",
   "title": "Runware AI Image Generator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "compatibility": {
     "minimum": "13",
-    "verified": "13"
+    "verified": "13.350",
+    "maximum": "13"
   },
   "authors": [
     {
-      "name": "FoundryVTT Module Developer",
+      "name": "Q-efx",
+      "discord": "Q-efx",
       "flags": {}
     }
   ],
@@ -34,6 +36,10 @@
   "url": "",
   "manifest": "",
   "download": "",
+  "readme": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/README.md",
+  "changelog": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/CHANGELOG.md",
+  "license": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/licenses.md",
+  "bugs": "https://github.com/Q-efx/fvtt-runware-imagegen/issues",
   "protected": false,
   "flags": {}
 }
