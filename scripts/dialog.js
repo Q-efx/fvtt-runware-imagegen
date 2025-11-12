@@ -65,6 +65,10 @@ export class RunwareImageDialog extends FormApplication {
       : [];
 
     this.availablePresets = presets;
+    const presetOptions = presets.reduce((acc, preset) => {
+      acc[preset.id] = preset.name;
+      return acc;
+    }, {});
 
     return foundry.utils.mergeObject(data, {
       actor: this.actor,
@@ -75,6 +79,7 @@ export class RunwareImageDialog extends FormApplication {
       numberResults: numberResults,
       isGenerating: this.isGenerating,
       presets: presets,
+      presetOptions,
       canManagePresets: game.user.isGM,
       appliedPresetId: this.appliedPresetId,
       // Common model suggestions

@@ -52,14 +52,9 @@
     <div class="runware-form-group preset-selector">
       <label for="presetSelection">Preset</label>
       <div class="preset-controls">
-        {{#select appliedPresetId}}
         <select name="presetSelection" id="presetSelection" {{#if isGenerating}}disabled{{/if}}>
-          <option value="">Select a preset...</option>
-          {{#each presets}}
-          <option value="{{this.id}}">{{this.name}}</option>
-          {{/each}}
+          {{selectOptions presetOptions selected=appliedPresetId blank="Select a preset..."}}
         </select>
-        {{/select}}
         {{#if canManagePresets}}
         <button type="button" class="manage-presets" title="Manage presets" {{#if isGenerating}}disabled{{/if}}>
           <i class="fas fa-sliders-h"></i>
