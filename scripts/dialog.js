@@ -301,7 +301,7 @@ export class RunwareImageDialog extends FormApplication {
       this.runware = await Runware.initialize({ apiKey: this.apiKey });
     }
 
-  const basePrompt = (formData.prompt ?? '').trim();
+    const basePrompt = (formData.prompt ?? '').trim();
     const loraModel = formData.loraModel?.trim() ?? '';
     const loraTrigger = formData.loraTrigger?.trim() ?? '';
     let positivePrompt = basePrompt;
