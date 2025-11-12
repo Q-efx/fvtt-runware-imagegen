@@ -38,6 +38,8 @@
   "download": "",
   "readme": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/README.md",
   "changelog": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/CHANGELOG.md",
+  "license": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/licenses.md",
+  "bugs": "https://github.com/Q-efx/fvtt-runware-imagegen/issues",
   "protected": false,
   "flags": {}
 }
