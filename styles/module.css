@@ -34,6 +34,8 @@
 
 .runware-image-dialog .window-content {
   padding: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
 }
 
 .runware-image-dialog form {
@@ -76,12 +78,11 @@
 }
 
 .runware-form-group input,
-.runware-form-group textarea,
-.runware-form-group select {
+.runware-form-group textarea {
   padding: 0.5rem;
   border: 1px solid var(--color-border-dark-tertiary);
   background: var(--color-cool-1);
-  color: black
+  color: white;
   border-radius: 3px;
   font-family: inherit;
   font-size: 0.9em;
@@ -94,8 +95,7 @@
 }
 
 .runware-form-group input:focus,
-.runware-form-group textarea:focus,
-.runware-form-group select:focus {
+.runware-form-group textarea:focus {
   outline: none;
   border-color: var(--color-border-highlight);
   box-shadow: 0 0 4px var(--color-shadow-highlight);
@@ -135,6 +135,8 @@
 /* Preset manager form */
 .runware-preset-config .window-content {
   padding: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
 }
 .runware-preset-form .notes {
   margin-top: 0;
@@ -164,6 +166,11 @@
 .runware-preset-form .lora-group {
   display: grid;
   grid-template-columns: 2fr 1fr;
+  gap: 0.5rem;
+}
+.runware-preset-form .dimension-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
 .runware-preset-form .lora-trigger-group {
@@ -355,6 +362,10 @@
 @media (max-width: 768px) {
   .runware-dimensions,
   .lora-config {
+    grid-template-columns: 1fr;
+  }
+
+  .runware-preset-form .dimension-inputs {
     grid-template-columns: 1fr;
   }
 

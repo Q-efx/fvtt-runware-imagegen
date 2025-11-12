@@ -49,7 +49,8 @@ export class ImageFileHandler {
       const file = new File([blob], filename, { type: 'image/png' });
 
       // Upload to the data directory
-      const response = await FilePicker.upload('data', dirPath, file, {}, { notify: false });
+      const filePicker = this._getFilePicker();
+      const response = await filePicker.upload('data', dirPath, file, {}, { notify: false });
 
       if (response && response.path) {
         console.log(`${MODULE_NAME} | Image saved to:`, response.path);
@@ -70,9 +71,10 @@ export class ImageFileHandler {
    * @returns {Promise<void>}
    */
   static async _ensureDirectory(path) {
+    const filePicker = this._getFilePicker();
     try {
       // Try to browse the directory to see if it exists
-      await FilePicker.browse('data', path);
+      await filePicker.browse('data', path);
     } catch (error) {
       // Directory doesn't exist, create it
       console.log(`${MODULE_NAME} | Creating directory:`, path);
@@ -87,11 +89,11 @@ export class ImageFileHandler {
         currentPath = currentPath ? `${currentPath}/${part}` : part;
 
         try {
-          await FilePicker.browse('data', currentPath);
+          await filePicker.browse('data', currentPath);
         } catch (err) {
           // This directory level doesn't exist, create it
           try {
-            await FilePicker.createDirectory('data', currentPath);
+            await filePicker.createDirectory('data', currentPath);
           } catch (createErr) {
             // Ignore error if directory was just created by another process
             if (!createErr.message.includes('exists')) {
@@ -109,9 +111,10 @@ export class ImageFileHandler {
    * @returns {Promise<number>} The next image number
    */
   static async _getNextImageNumber(dirPath, filenamePrefix = 'image_') {
+    const filePicker = this._getFilePicker();
     try {
       // Browse the directory to get existing files
-      const result = await FilePicker.browse('data', dirPath);
+      const result = await filePicker.browse('data', dirPath);
 
       if (!result || !result.files) {
         return 1;
@@ -180,7 +183,8 @@ export class ImageFileHandler {
       const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
       const dirPath = `modules/${MODULE_ID}/images/${actorNameClean}`;
 
-      const result = await FilePicker.browse('data', dirPath);
+      const filePicker = this._getFilePicker();
+      const result = await filePicker.browse('data', dirPath);
 
       if (!result || !result.files) {
         return [];
@@ -199,5 +203,18 @@ export class ImageFileHandler {
       console.warn(`${MODULE_NAME} | No images found for actor:`, actor.name);
       return [];
     }
+  }
+
+  static _getFilePicker() {
+    const implementation = foundry?.applications?.apps?.FilePicker?.implementation;
+    if (implementation) {
+      return implementation;
+    }
+
+    if (globalThis.FilePicker) {
+      return globalThis.FilePicker;
+    }
+
+    throw new Error(`${MODULE_NAME}: FilePicker API is unavailable.`);
   }
 }
