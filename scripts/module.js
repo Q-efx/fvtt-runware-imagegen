@@ -72,7 +72,7 @@ Hooks.once('init', async function() {
     hint: 'Collection of reusable model presets shared with all users.',
     scope: 'world',
     config: false,
-    type: Object,
+    type: Array,
     default: [],
     onChange: (value) => Hooks.callAll('runware-imagegen.presetsUpdated', value)
   });
