@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.1.0]
 
-### Added preset management to configure VAE, LoRAs, etc. and save them as presets.
+### Added
+
+- preset management to configure VAE, LoRAs, etc. and save them as presets.
 
 ## [v0.0.8]
 
