@@ -229,8 +229,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     const presetId = row.dataset.presetId || foundry.utils.randomID();
     const nameInput = row.querySelector('input[name="preset-name"]');
     const modelInput = row.querySelector('input[name="preset-model"]');
-  const widthInput = row.querySelector('input[name="preset-width"]');
-  const heightInput = row.querySelector('input[name="preset-height"]');
+    const widthInput = row.querySelector('input[name="preset-width"]');
+    const heightInput = row.querySelector('input[name="preset-height"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
     const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
