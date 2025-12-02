@@ -4,26 +4,49 @@
 
 import { MODULE_ID, MODULE_NAME } from './constants.js';
 
-export class RunwarePresetConfig extends FormApplication {
-  constructor(object = {}, options = {}) {
-    super(object, options);
+export class RunwarePresetConfig extends foundry.applications.api.HandlebarsApplicationMixin(
+  foundry.applications.api.ApplicationV2
+) {
+  constructor(options = {}) {
+    super(options);
     this.presets = null;
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: 'runware-preset-config',
-      classes: ['runware-preset-config'],
+  static DEFAULT_OPTIONS = {
+    id: 'runware-preset-config',
+    classes: ['runware-preset-config'],
+    tag: 'form',
+    window: {
       title: `${MODULE_NAME}: Preset Manager`,
-      template: `modules/${MODULE_ID}/templates/preset-config.hbs`,
-      width: 700,
-      height: 'auto',
+      frame: true,
+      positioned: true,
+      minimizable: true
+    },
+    actions: {
+      addPreset: RunwarePresetConfig.prototype._onAddPreset,
+      removePreset: RunwarePresetConfig.prototype._onRemovePreset,
+      addEmbedding: RunwarePresetConfig.prototype._onAddEmbedding,
+      removeEmbedding: RunwarePresetConfig.prototype._onRemoveEmbedding,
+      savePresets: RunwarePresetConfig.prototype._onSavePresets
+    },
+    form: {
+      handler: RunwarePresetConfig.prototype._onSubmit,
       closeOnSubmit: false,
       submitOnChange: false
-    });
-  }
+    },
+    position: {
+      width: 700,
+      height: 'auto'
+    }
+  };
 
-  async getData(options = {}) {
+  static PARTS = {
+    form: {
+      template: `modules/${MODULE_ID}/templates/preset-config.hbs`
+    }
+  };
+
+  async _prepareContext(options) {
     if (!Array.isArray(this.presets)) {
       this.presets = this._loadPresets();
     }
@@ -33,46 +56,54 @@ export class RunwarePresetConfig extends FormApplication {
     };
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
-
-    html.find('.add-preset').on('click', (event) => {
-      event.preventDefault();
-      this._addPreset();
-    });
-
-    html.find('.preset-list').on('click', '.remove-preset', (event) => {
-      event.preventDefault();
-      const row = event.currentTarget.closest('.preset-row');
-      if (!row) return;
-      const presetId = row.dataset.presetId;
-      this._removePreset(presetId);
-    });
-
-    html.find('.preset-list').on('click', '.add-embedding', (event) => {
-      event.preventDefault();
-      const row = event.currentTarget.closest('.preset-row');
-      if (!row) return;
-      const presetId = row.dataset.presetId;
-      this._addEmbedding(presetId);
-    });
-
-    html.find('.preset-list').on('click', '.remove-embedding', (event) => {
-      event.preventDefault();
-      const row = event.currentTarget.closest('.preset-row');
-      const embedRow = event.currentTarget.closest('.embedding-row');
-      if (!row || !embedRow) return;
-      const presetId = row.dataset.presetId;
-      const index = Number(embedRow.dataset.embeddingIndex ?? -1);
-      this._removeEmbedding(presetId, index);
-    });
+  async _onAddPreset(event, target) {
+    event?.preventDefault();
+    this._addPreset();
   }
 
-  async _updateObject(event, formData) {
-    const root = this.element[0];
-    if (!root) return;
+  async _onRemovePreset(event, target) {
+    event?.preventDefault();
+    const row = target.closest('.preset-row');
+    if (!row) return;
+    const presetId = row.dataset.presetId;
+    this._removePreset(presetId);
+  }
 
-    const rows = Array.from(root.querySelectorAll('.preset-row'));
+  async _onAddEmbedding(event, target) {
+    event?.preventDefault();
+    const row = target.closest('.preset-row');
+    if (!row) return;
+    const presetId = row.dataset.presetId;
+    this._addEmbedding(presetId);
+  }
+
+  async _onRemoveEmbedding(event, target) {
+    event?.preventDefault();
+    const row = target.closest('.preset-row');
+    const embedRow = target.closest('.embedding-row');
+    if (!row || !embedRow) return;
+    const presetId = row.dataset.presetId;
+    const index = Number(embedRow.dataset.embeddingIndex ?? -1);
+    this._removeEmbedding(presetId, index);
+  }
+
+  async _onSubmit(event, form, formData) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    await this._commitPresetChanges();
+  }
+
+  async _onSavePresets(event, target) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    await this._commitPresetChanges();
+  }
+
+  async _commitPresetChanges() {
+    const form = this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const rows = Array.from(form.querySelectorAll('.preset-row'));
     const presets = [];
 
     for (const row of rows) {
@@ -83,10 +114,16 @@ export class RunwarePresetConfig extends FormApplication {
       presets.push(preset);
     }
 
-    await game.settings.set(MODULE_ID, 'generationPresets', presets);
-    this.presets = this._loadPresets();
-    ui.notifications.info(`${MODULE_NAME}: Presets saved.`);
-    this.render(false);
+    try {
+      await game.settings.set(MODULE_ID, 'generationPresets', presets);
+      this.presets = this._loadPresets();
+      Hooks.callAll('runware-imagegen.presetsUpdated', this.presets);
+      ui.notifications.info(`${MODULE_NAME}: Presets saved.`);
+      await this.close();
+    } catch (error) {
+      console.error(`${MODULE_NAME} | Failed to save presets`, error);
+      ui.notifications.error(`${MODULE_NAME}: Failed to save presets - ${error.message}`);
+    }
   }
 
   _loadPresets() {
@@ -100,6 +137,8 @@ export class RunwarePresetConfig extends FormApplication {
       id: preset.id ?? foundry.utils.randomID(),
       name: preset.name ?? '',
       model: preset.model ?? '',
+      width: this._coerceDimension(preset.width),
+      height: this._coerceDimension(preset.height),
       lora: {
         model: preset.lora?.model ?? '',
         weight: this._coerceNumber(preset.lora?.weight, 1),
@@ -122,6 +161,8 @@ export class RunwarePresetConfig extends FormApplication {
       id: preset.id,
       name: preset.name,
       model: preset.model,
+      width: Number.isFinite(preset.width) ? preset.width : '',
+      height: Number.isFinite(preset.height) ? preset.height : '',
       lora: {
         model: preset.lora?.model ?? '',
         weight: preset.lora?.weight ?? 1,
@@ -152,6 +193,8 @@ export class RunwarePresetConfig extends FormApplication {
       this._normalizePreset({
         name: 'New Preset',
         model: '',
+        width: null,
+        height: null,
         lora: { model: '', weight: 1, trigger: '' },
         vae: '',
         embeddings: []
@@ -186,6 +229,8 @@ export class RunwarePresetConfig extends FormApplication {
     const presetId = row.dataset.presetId || foundry.utils.randomID();
     const nameInput = row.querySelector('input[name="preset-name"]');
     const modelInput = row.querySelector('input[name="preset-model"]');
+    const widthInput = row.querySelector('input[name="preset-width"]');
+    const heightInput = row.querySelector('input[name="preset-height"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
     const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
@@ -209,6 +254,16 @@ export class RunwarePresetConfig extends FormApplication {
       name,
       model
     };
+
+    const width = this._coerceDimension(widthInput?.value);
+    if (width) {
+      preset.width = width;
+    }
+
+    const height = this._coerceDimension(heightInput?.value);
+    if (height) {
+      preset.height = height;
+    }
 
     const loraModel = loraModelInput?.value.trim() ?? '';
     const loraTrigger = loraTriggerInput?.value.trim() ?? '';
@@ -244,5 +299,11 @@ export class RunwarePresetConfig extends FormApplication {
     }
 
     return preset;
+  }
+
+  _coerceDimension(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    return Math.round(num);
   }
 }

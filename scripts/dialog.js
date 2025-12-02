@@ -1,15 +1,17 @@
 /**
  * Runware Image Generation Dialog
  *
- * A FormApplication for configuring and generating AI images using Runware SDK
+ * An ApplicationV2 for configuring and generating AI images using Runware SDK
  */
 
 import { MODULE_ID, MODULE_NAME } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
 
-export class RunwareImageDialog extends FormApplication {
+export class RunwareImageDialog extends foundry.applications.api.HandlebarsApplicationMixin(
+  foundry.applications.api.ApplicationV2
+) {
   constructor(options = {}) {
-    super({}, options);
+    super(options);
 
     this.actor = options.actor;
     this.apiKey = options.apiKey;
@@ -18,26 +20,48 @@ export class RunwareImageDialog extends FormApplication {
     this.isGenerating = false;
     this.availablePresets = [];
     this.appliedPresetId = null;
+    this._boundPresetSelect = null;
+    this._handlePresetSelectChange = this._handlePresetSelectChange.bind(this);
     this._handlePresetsUpdated = this._handlePresetsUpdated.bind(this);
     Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
   }
 
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      id: 'runware-image-dialog',
+  static DEFAULT_OPTIONS = {
+    id: 'runware-image-dialog',
+    classes: ['runware-image-dialog'],
+    tag: 'form',
+    window: {
       title: 'Generate AI Image',
-      template: `modules/${MODULE_ID}/templates/image-dialog.hbs`,
-      width: 600,
-      height: 'auto',
+      frame: true,
+      positioned: true,
+      minimizable: true
+    },
+    actions: {
+      modelSuggestion: RunwareImageDialog.prototype._onModelSuggestion,
+      generate: RunwareImageDialog.prototype._onGenerate,
+      cancel: RunwareImageDialog.prototype._onCancel,
+      managePresets: RunwareImageDialog.prototype._onManagePresets,
+      presetChange: RunwareImageDialog.prototype._onPresetChange,
+      toggleAdvanced: RunwareImageDialog.prototype._onToggleAdvanced
+    },
+    form: {
+      handler: RunwareImageDialog.prototype._onSubmit,
       closeOnSubmit: false,
-      submitOnChange: false,
-      classes: ['runware-image-dialog']
-    });
-  }
+      submitOnChange: false
+    },
+    position: {
+      width: 600,
+      height: 'auto'
+    }
+  };
 
-  getData(options = {}) {
-    const data = super.getData(options);
+  static PARTS = {
+    form: {
+      template: `modules/${MODULE_ID}/templates/image-dialog.hbs`
+    }
+  };
 
+  async _prepareContext(options) {
     // Get settings
     const defaultModel = game.settings.get(MODULE_ID, 'defaultModel');
     const imageWidth = game.settings.get(MODULE_ID, 'imageWidth');
@@ -46,21 +70,8 @@ export class RunwareImageDialog extends FormApplication {
     const presetsSetting = game.settings.get(MODULE_ID, 'generationPresets') ?? [];
     const presets = Array.isArray(presetsSetting)
       ? presetsSetting
-          .filter((preset) => preset && preset.name && preset.model)
-          .map((preset) => ({
-            id: preset.id ?? foundry.utils.randomID(),
-            name: preset.name,
-            model: preset.model,
-            lora: preset.lora
-              ? {
-                  model: preset.lora.model ?? '',
-                  weight: preset.lora.weight ?? 1,
-                  trigger: preset.lora.trigger ?? ''
-                }
-              : null,
-            vae: preset.vae ?? '',
-            embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
-          }))
+          .map((preset) => this._mapPreset(preset))
+          .filter((preset) => preset !== null)
           .sort((a, b) => a.name.localeCompare(b.name))
       : [];
 
@@ -70,7 +81,7 @@ export class RunwareImageDialog extends FormApplication {
       return acc;
     }, {});
 
-    return foundry.utils.mergeObject(data, {
+    return {
       actor: this.actor,
       actorName: this.actor.name,
       defaultModel: defaultModel,
@@ -89,38 +100,128 @@ export class RunwareImageDialog extends FormApplication {
         { value: 'civitai:130869@143722', label: 'Fantastic Characters SDXL' },
         { value: 'civitai:4384@128713', label: 'DreamShaper' },
       ]
-    });
+    };
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
+  async _onModelSuggestion(event, target) {
+    event.preventDefault();
+    const button = target?.closest('[data-action="modelSuggestion"]');
+    const modelValue = button?.dataset.model;
+    if (!modelValue) return;
 
-    // Model suggestion buttons
-    html.find('.model-suggestion').on('click', this._onModelSuggestion.bind(this));
-
-    // Generate button
-    html.find('.generate-button').on('click', this._onGenerate.bind(this));
-
-    // Cancel button
-    html.find('.cancel-button').on('click', () => this.close());
-
-    // Preset selection
-    html.find('select[name="presetSelection"]').on('change', (event) => {
-      const presetId = event.currentTarget.value;
-      const preset = this._findPresetById(presetId);
-      if (!preset) {
-        this.appliedPresetId = null;
-        return;
-      }
-      this._applyPresetToForm(html, preset);
-    });
-
-    if (game.user.isGM) {
-      html.find('.manage-presets').on('click', (event) => {
-        event.preventDefault();
-        new RunwarePresetConfig().render(true);
-      });
+    const form = this.element;
+    if (!(form instanceof HTMLElement)) return;
+    const modelInput = form.querySelector('input[name="model"]');
+    if (modelInput) {
+      modelInput.value = modelValue;
     }
+  }
+
+  async _onGenerate(event, target) {
+    event.preventDefault();
+
+    if (this.isGenerating) {
+      ui.notifications.warn(`${MODULE_NAME}: Generation already in progress`);
+      return;
+    }
+
+    // Get form data
+    const form = target?.closest?.('form') ?? this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const rawFormData = new FormData(form);
+    const formData = Object.fromEntries(rawFormData.entries());
+
+    // Validate inputs
+    const promptField = form.elements.namedItem?.('prompt');
+    const promptInput = promptField instanceof HTMLTextAreaElement ? promptField : form.querySelector('textarea[name="prompt"]');
+    const promptTextRaw = typeof promptInput?.value === 'string' ? promptInput.value : formData.prompt;
+    const promptText = typeof promptTextRaw === 'string' ? promptTextRaw.trim() : '';
+    if (!promptText) {
+      ui.notifications.error(`${MODULE_NAME}: Please enter a prompt`);
+      return;
+    }
+
+    const modelField = form.elements.namedItem?.('model');
+    const modelInput = modelField instanceof HTMLInputElement ? modelField : form.querySelector('input[name="model"]');
+    const modelValueRaw = typeof modelInput?.value === 'string' ? modelInput.value : formData.model;
+    const modelValue = typeof modelValueRaw === 'string' ? modelValueRaw.trim() : '';
+    if (!modelValue) {
+      ui.notifications.error(`${MODULE_NAME}: Please enter a model`);
+      return;
+    }
+
+    formData.prompt = promptText;
+    formData.model = modelValue;
+
+    const negativeField = form.elements.namedItem?.('negativePrompt');
+    const negativePromptInput = negativeField instanceof HTMLTextAreaElement ? negativeField : form.querySelector('textarea[name="negativePrompt"]');
+    if (negativePromptInput) {
+      formData.negativePrompt = negativePromptInput.value.trim();
+    }
+    // Start generation
+    this.isGenerating = true;
+    this.render(false); // Re-render to show loading state
+
+    try {
+      ui.notifications.info(`${MODULE_NAME}: Generating image...`);
+
+      // Generate the image using Runware SDK
+      const imageData = await this._generateImage(formData);
+
+      // Call the callback with the generated image
+      if (this.onImageGenerated && imageData) {
+        await this.onImageGenerated(imageData);
+      }
+
+      // Close the dialog on success
+      await this.close();
+
+    } catch (error) {
+      console.error(`${MODULE_NAME} | Image generation error:`, error);
+      ui.notifications.error(`${MODULE_NAME}: Image generation failed - ${error.message}`);
+    } finally {
+      this.isGenerating = false;
+      if (this.rendered) {
+        this.render(false);
+      }
+    }
+  }
+
+  async _onCancel(event, target) {
+    event.preventDefault();
+    this.close();
+  }
+
+  async _onManagePresets(event, target) {
+    event.preventDefault();
+    if (!game.user.isGM) return;
+    new RunwarePresetConfig().render(true);
+  }
+
+  async _onPresetChange(event, target) {
+    const select = target?.closest('select');
+    const presetId = select?.value ?? '';
+    this._applyPresetSelection(presetId);
+  }
+
+  _handlePresetSelectChange(event) {
+    const select = event.currentTarget;
+    if (!(select instanceof HTMLSelectElement)) return;
+    this._applyPresetSelection(select.value ?? '');
+  }
+
+  _applyPresetSelection(presetId, { silent = false } = {}) {
+    const preset = this._findPresetById(presetId);
+    if (!preset) {
+      this.appliedPresetId = null;
+      const select = this._boundPresetSelect ?? this.element?.querySelector?.('select[name="presetSelection"]');
+      if (select instanceof HTMLSelectElement) {
+        select.value = '';
+      }
+      return;
+    }
+    this._applyPresetToForm(preset, { silent });
   }
 
   /**
@@ -131,31 +232,99 @@ export class RunwareImageDialog extends FormApplication {
     return this.availablePresets.find((preset) => preset.id === presetId) ?? null;
   }
 
-  _applyPresetToForm(html, preset) {
+  _applyPresetToForm(preset, { silent = false } = {}) {
     if (!preset) return;
+
+    const form = this.form ?? this.element;
+    if (!(form instanceof HTMLElement)) return;
 
     this.appliedPresetId = preset.id;
 
-    html.find('select[name="presetSelection"]').val(preset.id);
+    const presetSelect = form.querySelector('select[name="presetSelection"]');
+    if (presetSelect) {
+      presetSelect.value = preset.id;
+    }
 
-    html.find('input[name="model"]').val(preset.model ?? '');
+    const modelInput = form.querySelector('input[name="model"]');
+    if (modelInput) {
+      modelInput.value = preset.model ?? '';
+    }
 
-    const loraModelField = html.find('input[name="loraModel"]');
-    const loraWeightField = html.find('input[name="loraWeight"]');
-    const loraTriggerField = html.find('input[name="loraTrigger"]');
+    const loraModelInput = form.querySelector('input[name="loraModel"]');
+    const loraWeightInput = form.querySelector('input[name="loraWeight"]');
+    const loraTriggerInput = form.querySelector('input[name="loraTrigger"]');
     const loraModel = preset.lora?.model ?? '';
     const loraWeight = preset.lora?.weight ?? 1;
     const loraTrigger = preset.lora?.trigger ?? '';
-    loraModelField.val(loraModel);
-    loraWeightField.val(loraWeight);
-    loraTriggerField.val(loraTrigger);
+    if (loraModelInput) loraModelInput.value = loraModel;
+    if (loraWeightInput) loraWeightInput.value = `${loraWeight}`;
+    if (loraTriggerInput) loraTriggerInput.value = loraTrigger;
 
-    html.find('input[name="vaeModel"]').val(preset.vae ?? '');
+    const vaeInput = form.querySelector('input[name="vaeModel"]');
+    if (vaeInput) {
+      vaeInput.value = preset.vae ?? '';
+    }
 
-    const embeddingsField = html.find('textarea[name="embeddings"]');
-    embeddingsField.val(this._formatEmbeddingsForInput(preset.embeddings));
+    const widthInput = form.querySelector('input[name="width"]');
+    if (widthInput && Number.isFinite(preset.width) && preset.width > 0) {
+      widthInput.value = `${preset.width}`;
+    }
 
-    ui.notifications.info(`${MODULE_NAME}: Applied preset "${preset.name}".`);
+    const heightInput = form.querySelector('input[name="height"]');
+    if (heightInput && Number.isFinite(preset.height) && preset.height > 0) {
+      heightInput.value = `${preset.height}`;
+    }
+
+    const embeddingsField = form.querySelector('textarea[name="embeddings"]');
+    if (embeddingsField) {
+      embeddingsField.value = this._formatEmbeddingsForInput(preset.embeddings);
+    }
+
+    if (!silent) {
+      ui.notifications.info(`${MODULE_NAME}: Applied preset "${preset.name}".`);
+    }
+  }
+
+  async _onToggleAdvanced(event, target) {
+    if (event.type === 'keydown') {
+      const key = event.key;
+      if (key !== 'Enter' && key !== ' ') return;
+      event.preventDefault();
+    } else {
+      event.preventDefault();
+    }
+
+    const toggle = target?.closest('.advanced-toggle');
+    if (!toggle) return;
+    const content = toggle.nextElementSibling;
+    toggle.classList.toggle('collapsed');
+    content?.classList.toggle('expanded');
+  }
+
+  _mapPreset(rawPreset) {
+    if (!rawPreset || !rawPreset.name || !rawPreset.model) {
+      return null;
+    }
+
+    const width = Number(rawPreset.width);
+    const height = Number(rawPreset.height);
+
+    return {
+      id: rawPreset.id ?? foundry.utils.randomID(),
+      name: rawPreset.name,
+      model: rawPreset.model,
+      width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+      height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      lora: rawPreset.lora
+        ? {
+            model: rawPreset.lora.model ?? '',
+            weight: rawPreset.lora.weight ?? 1,
+            trigger: rawPreset.lora.trigger ?? ''
+          }
+        : null,
+      vae: rawPreset.vae ?? '',
+      embeddings: Array.isArray(rawPreset.embeddings) ? rawPreset.embeddings : []
+    };
   }
 
   _formatEmbeddingsForInput(embeddings) {
@@ -197,21 +366,8 @@ export class RunwareImageDialog extends FormApplication {
   _handlePresetsUpdated(value) {
     if (Array.isArray(value)) {
       this.availablePresets = value
-        .filter((preset) => preset && preset.name && preset.model)
-        .map((preset) => ({
-          id: preset.id ?? foundry.utils.randomID(),
-          name: preset.name,
-          model: preset.model,
-          lora: preset.lora
-            ? {
-                model: preset.lora.model ?? '',
-                weight: preset.lora.weight ?? 1,
-                trigger: preset.lora.trigger ?? ''
-              }
-            : null,
-          vae: preset.vae ?? '',
-          embeddings: Array.isArray(preset.embeddings) ? preset.embeddings : []
-        }))
+        .map((preset) => this._mapPreset(preset))
+        .filter((preset) => preset !== null)
         .sort((a, b) => a.name.localeCompare(b.name));
 
       if (this.appliedPresetId && !this.availablePresets.some((preset) => preset.id === this.appliedPresetId)) {
@@ -224,70 +380,42 @@ export class RunwareImageDialog extends FormApplication {
     }
   }
 
-  /**
-   * Handle clicking a model suggestion
-   */
-  _onModelSuggestion(event) {
-    event.preventDefault();
-    const modelValue = $(event.currentTarget).data('model');
-    this.element.find('input[name="model"]').val(modelValue);
+  async _onRender(context, options) {
+    if (super._onRender) await super._onRender(context, options);
+    this._bindPresetSelect();
+    if (this.appliedPresetId) {
+      this._applyPresetSelection(this.appliedPresetId, { silent: true });
+    }
   }
 
-  /**
-   * Handle the generate button click
-   */
-  async _onGenerate(event) {
-    event.preventDefault();
-
-    if (this.isGenerating) {
-      ui.notifications.warn(`${MODULE_NAME}: Generation already in progress`);
-      return;
+  _bindPresetSelect() {
+    if (this._boundPresetSelect) {
+      this._boundPresetSelect.removeEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = null;
     }
 
-    // Get form data
-    const form = this.element.find('form')[0];
-    const formData = new FormDataExtended(form).object;
+    const form = this.form ?? this.element;
+    const presetField = form instanceof HTMLFormElement
+      ? form.elements.namedItem?.('presetSelection')
+      : null;
+    const select = presetField instanceof HTMLSelectElement
+      ? presetField
+      : form instanceof HTMLElement
+        ? form.querySelector('select[name="presetSelection"]')
+        : null;
 
-    // Validate inputs
-    if (!formData.prompt || formData.prompt.trim() === '') {
-      ui.notifications.error(`${MODULE_NAME}: Please enter a prompt`);
-      return;
-    }
-
-    if (!formData.model || formData.model.trim() === '') {
-      ui.notifications.error(`${MODULE_NAME}: Please enter a model`);
-      return;
-    }
-
-    // Start generation
-    this.isGenerating = true;
-    this.render(false); // Re-render to show loading state
-
-    try {
-      ui.notifications.info(`${MODULE_NAME}: Generating image...`);
-
-      // Generate the image using Runware SDK
-      const imageData = await this._generateImage(formData);
-
-      // Call the callback with the generated image
-      if (this.onImageGenerated && imageData) {
-        await this.onImageGenerated(imageData);
-      }
-
-      // Close the dialog on success
-      this.close();
-
-    } catch (error) {
-      console.error(`${MODULE_NAME} | Image generation error:`, error);
-      ui.notifications.error(`${MODULE_NAME}: Image generation failed - ${error.message}`);
-    } finally {
-      this.isGenerating = false;
-      this.render(false);
+    if (select instanceof HTMLSelectElement) {
+      select.addEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = select;
     }
   }
 
   async close(options) {
     Hooks.off('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
+    if (this._boundPresetSelect) {
+      this._boundPresetSelect.removeEventListener('change', this._handlePresetSelectChange);
+      this._boundPresetSelect = null;
+    }
     return super.close(options);
   }
 
@@ -348,7 +476,7 @@ export class RunwareImageDialog extends FormApplication {
       requestParams.vae = formData.vaeModel.trim();
     }
 
-    const parsedEmbeddings = this._parseEmbeddings(formData.embeddings);
+  const parsedEmbeddings = this._parseEmbeddings(formData.embeddings);
     if (parsedEmbeddings.length > 0) {
       requestParams.embeddings = parsedEmbeddings;
     }
@@ -381,11 +509,12 @@ export class RunwareImageDialog extends FormApplication {
     return images;
   }
 
-  /**
-   * Override to prevent default form submission
-   */
-  async _updateObject(event, formData) {
-    // This is handled by our custom _onGenerate method
+  async _onSubmit(event, form, formData) {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    // Form submission is handled by the generate button action
+    // This prevents default form submit behavior
     return;
   }
 }
