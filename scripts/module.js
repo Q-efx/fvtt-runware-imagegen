@@ -105,17 +105,62 @@ Hooks.once('ready', async function() {
 /**
  * Add image generation button to ActorSheet header
  */
-Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
-  // Only add button if user has permission to update the actor
-  if (!app.document.testUserPermission(game.user, 'OWNER')) return;
+const RUNWARE_BUTTON_CLASS = 'runware-imagegen-header-button';
+const RUNWARE_CONTROL_ID = 'runware-imagegen-control';
+const RUNWARE_CONTROL_ACTION = 'runwareGenerateImage';
 
-  buttons.unshift({
+Hooks.on('getActorSheetHeaderButtons', (app, buttons) => {
+  const actor = app.document;
+  if (!canUserModifyActor(actor)) return;
+  if (buttons.some((btn) => btn.class === RUNWARE_BUTTON_CLASS)) return;
+
+  buttons.unshift(createRunwareHeaderButton(app));
+});
+
+Hooks.on('getHeaderControlsApplicationV2', (app, controls) => {
+  const DocumentSheetV2 = foundry?.applications?.api?.DocumentSheetV2;
+  if (!DocumentSheetV2 || !(app instanceof DocumentSheetV2)) return;
+
+  const actor = app.document;
+  if (!isActorDocument(actor) || !canUserModifyActor(actor)) return;
+  if (controls.some((control) => control.id === RUNWARE_CONTROL_ID)) return;
+
+  controls.unshift({
+    id: RUNWARE_CONTROL_ID,
+    action: RUNWARE_CONTROL_ACTION,
     label: 'Generate Image',
-    class: 'runware-imagegen-header-button',
     icon: 'fas fa-palette',
-    onclick: () => openImageGenerationDialog(app)
+    classes: [RUNWARE_BUTTON_CLASS],
+    onClick: () => openImageGenerationDialog(app)
   });
 });
+
+function isActorDocument(document) {
+  if (!document) return false;
+  if (document.documentName) return document.documentName === 'Actor';
+  if (document.constructor?.name === 'Actor') return true;
+  return typeof Actor !== 'undefined' && document instanceof Actor;
+}
+
+function canUserModifyActor(actor) {
+  if (!actor?.testUserPermission || !game?.user) return false;
+  const ownerLevel = CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? 'OWNER';
+  try {
+    return actor.testUserPermission(game.user, ownerLevel);
+  } catch (err) {
+    console.warn(`${MODULE_NAME} | Failed to evaluate ownership:`, err);
+    return false;
+  }
+}
+
+function createRunwareHeaderButton(app) {
+  return {
+    label: 'Generate Image',
+    class: RUNWARE_BUTTON_CLASS,
+    icon: 'fas fa-palette',
+    onclick: () => openImageGenerationDialog(app)
+  };
+}
 
 /**
  * Open the image generation dialog for an actor sheet
