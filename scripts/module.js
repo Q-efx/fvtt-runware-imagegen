@@ -135,8 +135,8 @@ async function openImageGenerationDialog(actorSheet) {
   const dialog = new RunwareImageDialog({
     actor: actor,
     apiKey: apiKey,
-    onImageGenerated: async (imageData) => {
-      await handleGeneratedImage(actor, imageData);
+    onImageGenerated: async (imageData, options) => {
+      await handleGeneratedImage(actor, imageData, options);
     }
   });
 
@@ -147,8 +147,9 @@ async function openImageGenerationDialog(actorSheet) {
  * Handle the generated image(s) - save it and optionally update actor
  * @param {Actor} actor - The actor document
  * @param {Array<Object>} imagesData - The generated image data from Runware
+ * @param {Object} options - Additional options
  */
-async function handleGeneratedImage(actor, imagesData) {
+async function handleGeneratedImage(actor, imagesData, options = {}) {
   try {
     if (!imagesData || imagesData.length === 0) {
       ui.notifications.warn(`${MODULE_NAME}: No images were generated.`);
@@ -167,6 +168,21 @@ async function handleGeneratedImage(actor, imagesData) {
     if (!selectedImageData) {
       ui.notifications.info(`${MODULE_NAME}: No image selected.`);
       return;
+    }
+
+    // Handle background removal if requested
+    if (options.removeBackground) {
+      ui.notifications.info(`${MODULE_NAME}: Removing background from selected image...`);
+      const bgRemovedData = await removeBackgroundFromImage(selectedImageData);
+      if (bgRemovedData) {
+        // Merge the new image data into the original image object to preserve other properties if needed
+        selectedImageData = {
+          ...selectedImageData,
+          ...bgRemovedData
+        };
+      } else {
+        ui.notifications.warn(`${MODULE_NAME}: Failed to remove background, using original image.`);
+      }
     }
 
     ui.notifications.info(`${MODULE_NAME}: Saving selected image...`);
@@ -215,22 +231,41 @@ async function handleGeneratedImage(actor, imagesData) {
         actorUpdates.img = savedPath;
       }
 
-      // Remove background and save as token image
-      let tokenImageData = await removeBackgroundFromImage(selectedImageData);
-      if (!tokenImageData) {
-        console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
-        tokenImageData = selectedImageData;
-      }
+      // If background was already removed, we can use the same image for token
+      // Or we can try to remove it again if it wasn't removed (e.g. option not checked)
+      // But the original logic always removed background for token.
+      // Let's keep the original logic for token if background wasn't removed for avatar.
 
       let tokenImagePath = null;
-      try {
-        tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
-        if (tokenImagePath) {
-          actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+
+      if (options.removeBackground) {
+        // Background already removed, use the same image for token
+        // But we might want to save it in the tokens directory
+        try {
+          tokenImagePath = await ImageFileHandler.saveImage(actor, selectedImageData, { type: 'token' });
+          if (tokenImagePath) {
+            actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+          }
+        } catch (tokenError) {
+           console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
         }
-      } catch (tokenError) {
-        console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
-        ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
+      } else {
+        // Remove background and save as token image (original behavior)
+        let tokenImageData = await removeBackgroundFromImage(selectedImageData);
+        if (!tokenImageData) {
+          console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
+          tokenImageData = selectedImageData;
+        }
+
+        try {
+          tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
+          if (tokenImagePath) {
+            actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+          }
+        } catch (tokenError) {
+          console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
+          ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
+        }
       }
 
       if (Object.keys(actorUpdates).length > 0) {

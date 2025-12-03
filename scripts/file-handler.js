@@ -28,7 +28,7 @@ export class ImageFileHandler {
       const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
       // Create directory path: modules/runware-image-generator/images/actor-name/[*]
-      const baseDirPath = `modules/${MODULE_ID}/images/${actorNameClean}`;
+      const baseDirPath = `images/runware/${actorNameClean}`;
       const dirPath = type === 'token' ? `${baseDirPath}/tokens` : baseDirPath;
 
       // Ensure directory exists

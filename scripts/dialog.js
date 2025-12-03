@@ -171,7 +171,9 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
       // Call the callback with the generated image
       if (this.onImageGenerated && imageData) {
-        await this.onImageGenerated(imageData);
+        await this.onImageGenerated(imageData, {
+          removeBackground: !!formData.removeBackground
+        });
       }
 
       // Close the dialog on success
