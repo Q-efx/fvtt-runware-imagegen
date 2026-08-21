@@ -311,6 +311,6 @@ const filename = `custom_name_${imageNumber}.png`;
 
 ---
 
-**Module Version**: 0.8.0
-**FoundryVTT Version**: v13+
+**Module Version**: 0.8.1
+**FoundryVTT Version**: v13-v14 (verified v14.367)
 **Last Updated**: 2026
