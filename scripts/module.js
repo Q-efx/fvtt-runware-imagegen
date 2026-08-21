@@ -223,6 +223,22 @@ async function openImageGenerationDialog(actorSheet) {
 }
 
 /**
+ * Resolve the DialogV2 API rather than assuming it's present. Legacy `Dialog`
+ * (and jQuery) have been fully removed from this module - module.json's v13
+ * minimum guarantees DialogV2 exists, but fail with a clear error instead of a
+ * mysterious TypeError if that assumption is ever wrong, matching the
+ * defensive style of ImageFileHandler._getFilePicker().
+ * @returns {typeof foundry.applications.api.DialogV2}
+ */
+function getDialogV2() {
+  const DialogV2 = foundry?.applications?.api?.DialogV2;
+  if (!DialogV2) {
+    throw new Error(`${MODULE_NAME}: DialogV2 API is unavailable.`);
+  }
+  return DialogV2;
+}
+
+/**
  * Handle the generated image(s) - save it and optionally update actor
  * @param {Actor} actor - The actor document
  * @param {Array<Object>} imagesData - The generated image data from Runware
@@ -277,47 +293,60 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
       // so the previous size calculation always fell back to this value anyway.
       const previewWidth = 640;
 
+      // Build the preview via DOM APIs (property assignment) instead of an HTML
+      // string, so `savedPath` is never interpolated into markup.
+      const consentContent = document.createElement('div');
+      const consentText = document.createElement('p');
+      consentText.textContent = "Would you like to use this image for the actor's portrait and/or token?";
+      consentContent.appendChild(consentText);
+      const consentImage = document.createElement('img');
+      consentImage.src = savedPath;
+      consentImage.style.maxWidth = '100%';
+      consentImage.style.border = '1px solid #000';
+      consentContent.appendChild(consentImage);
+
       // Ask the user what to do with the generated image. Portrait and token are
       // asked about together (in one dialog) because setting the prototype token
       // may trigger a paid background-removal API call - it must not happen
       // without consent, same as the portrait must not be overwritten without it.
-      const choice = await new Promise((resolve) => {
-        new Dialog(
+      // rejectClose: false + normalizing a null result below keeps dismissal
+      // (X / Escape) equivalent to declining both, exactly like the old `close:`
+      // handler on the legacy Dialog - without it DialogV2 would instead reject
+      // the promise and this would surface as "Failed to save image - undefined".
+      const consentResult = await getDialogV2().wait({
+        window: { title: 'Set as Actor Image?' },
+        position: { width: previewWidth, height: 'auto' },
+        content: consentContent,
+        rejectClose: false,
+        buttons: [
           {
-            title: 'Set as Actor Image?',
-            content: `<p>Would you like to use this image for the actor's portrait and/or token?</p>
-                      <img src="${savedPath}" style="max-width: 100%; border: 1px solid #000;"/>`,
-            buttons: {
-              both: {
-                icon: '<i class="fas fa-check"></i>',
-                label: 'Portrait + Token',
-                callback: () => resolve({ portrait: true, token: true }),
-              },
-              portraitOnly: {
-                label: 'Portrait Only',
-                callback: () => resolve({ portrait: true, token: false }),
-              },
-              tokenOnly: {
-                label: 'Token Only',
-                callback: () => resolve({ portrait: false, token: true }),
-              },
-              no: {
-                icon: '<i class="fas fa-times"></i>',
-                label: 'No',
-                callback: () => resolve({ portrait: false, token: false }),
-              },
-            },
+            action: 'both',
+            icon: 'fas fa-check',
+            label: 'Portrait + Token',
             // Keep the previous default-to-yes convenience: pressing Enter or
             // simply not customizing anything still applies to both, in one click.
-            default: 'both',
-            close: () => resolve({ portrait: false, token: false }),
+            default: true,
+            callback: () => ({ portrait: true, token: true }),
           },
           {
-            width: previewWidth,
-            height: 'auto',
+            action: 'portraitOnly',
+            label: 'Portrait Only',
+            callback: () => ({ portrait: true, token: false }),
           },
-        ).render(true);
+          {
+            action: 'tokenOnly',
+            label: 'Token Only',
+            callback: () => ({ portrait: false, token: true }),
+          },
+          {
+            action: 'no',
+            icon: 'fas fa-times',
+            label: 'No',
+            callback: () => ({ portrait: false, token: false }),
+          },
+        ],
       });
+      const choice = consentResult ?? { portrait: false, token: false };
 
       const actorUpdates = {};
       if (choice.portrait) {
@@ -385,7 +414,10 @@ async function getBackgroundRemovalClient() {
   }
 
   if (!backgroundRemovalClient || backgroundRemovalClientApiKey !== apiKey) {
-    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@latest/+esm');
+    // Major-locked instead of @latest: @latest currently resolves to 1.3.2, so
+    // @1 is behaviourally identical today while preventing a future 2.x release
+    // from being pulled in silently.
+    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
     backgroundRemovalClient = await Runware.initialize({ apiKey });
     backgroundRemovalClientApiKey = apiKey;
   }
@@ -403,7 +435,7 @@ async function removeBackgroundFromImage(imageData) {
         ? (imageData.imageBase64Data.startsWith('data:')
           ? imageData.imageBase64Data
           : `data:image/png;base64,${imageData.imageBase64Data}`)
-        : imageData?.img);
+        : imageData?.imageURL);
 
     if (!inputImage) {
       throw new Error('No image data available for background removal.');
@@ -433,93 +465,139 @@ async function removeBackgroundFromImage(imageData) {
  * @param {Array<Object>} imagesData - Array of generated image data.
  * @returns {Promise<Object|null>} The selected image data, or null if none selected.
  */
-function showImageSelectionDialog(imagesData) {
-  return new Promise((resolve) => {
-    let selectedImageData = null;
+async function showImageSelectionDialog(imagesData) {
+  const getPreviewSrc = (image) => {
+    if (image?.imageBase64Data) {
+      return image.imageBase64Data.startsWith('data:')
+        ? image.imageBase64Data
+        : `data:image/png;base64,${image.imageBase64Data}`;
+    }
+    if (image?.imageURL) return image.imageURL;
+    return '';
+  };
 
-    const getPreviewSrc = (image) => {
-      if (image?.imageBase64Data) {
-        return image.imageBase64Data.startsWith('data:')
-          ? image.imageBase64Data
-          : `data:image/png;base64,${image.imageBase64Data}`;
-      }
-      if (image?.img) return image.img;
-      if (image?.url) return image.url;
-      return '';
-    };
+  // Build the picker via DOM APIs (property assignment) instead of an HTML
+  // string, so each thumbnail's `previewSrc` (a data: URI or an SDK-provided
+  // URL) is never interpolated into markup.
+  const content = document.createElement('div');
 
-    let content = `
-      <p>Please select an image to keep:</p>
-      <div class="runware-image-selection" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
-    `;
+  const intro = document.createElement('p');
+  intro.textContent = 'Please select an image to keep:';
+  content.appendChild(intro);
 
-    imagesData.forEach((img, index) => {
-      const previewSrc = getPreviewSrc(img);
-      const isDisabled = !previewSrc;
-      const choiceClasses = `image-choice${isDisabled ? ' disabled' : ''}`;
-      const cardStyles = isDisabled
-        ? 'text-align: center; opacity: 0.6; cursor: not-allowed;'
-        : 'text-align: center; cursor: pointer;';
+  const grid = document.createElement('div');
+  grid.className = 'runware-image-selection';
+  grid.style.display = 'flex';
+  grid.style.flexWrap = 'wrap';
+  grid.style.gap = '10px';
+  grid.style.justifyContent = 'center';
 
-      content += `
-        <div style="${cardStyles}" class="${choiceClasses}" data-index="${index}">
-          ${previewSrc
-            ? `<img src="${previewSrc}" style="max-width: 200px; max-height: 200px; border: 2px solid transparent;" id="image-preview-${index}" />`
-            : `<div style="width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; border: 2px dashed #999;">No preview</div>`}
-          <br/>
-          <span>Image ${index + 1}</span>
-        </div>
-      `;
-    });
+  imagesData.forEach((img, index) => {
+    const previewSrc = getPreviewSrc(img);
+    const isDisabled = !previewSrc;
 
-    content += '</div>';
+    const card = document.createElement('div');
+    card.className = `image-choice${isDisabled ? ' disabled' : ''}`;
+    card.dataset.index = String(index);
+    card.style.textAlign = 'center';
+    card.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+    if (isDisabled) card.style.opacity = '0.6';
 
-    const dialog = new Dialog({
-      title: 'Select an Image',
-      content: content,
-      buttons: {
-        ok: {
-          label: 'Confirm Selection',
-          icon: '<i class="fas fa-check"></i>',
-          callback: () => {
-            if (!selectedImageData) {
-              ui.notifications.warn(`${MODULE_NAME}: Please select an image first.`);
-              return false;
-            }
-            resolve(selectedImageData);
-          }
-        },
-        cancel: {
-          label: 'Cancel',
-          icon: '<i class="fas fa-times"></i>',
-          callback: () => resolve(null)
-        }
+    if (previewSrc) {
+      const thumb = document.createElement('img');
+      thumb.src = previewSrc;
+      thumb.style.maxWidth = '200px';
+      thumb.style.maxHeight = '200px';
+      thumb.style.border = '2px solid transparent';
+      card.appendChild(thumb);
+    } else {
+      const placeholder = document.createElement('div');
+      placeholder.textContent = 'No preview';
+      placeholder.style.width = '200px';
+      placeholder.style.height = '200px';
+      placeholder.style.display = 'flex';
+      placeholder.style.alignItems = 'center';
+      placeholder.style.justifyContent = 'center';
+      placeholder.style.border = '2px dashed #999';
+      card.appendChild(placeholder);
+    }
+
+    card.appendChild(document.createElement('br'));
+
+    const label = document.createElement('span');
+    label.textContent = `Image ${index + 1}`;
+    card.appendChild(label);
+
+    grid.appendChild(card);
+  });
+
+  content.appendChild(grid);
+
+  let selectedImageData = null;
+
+  // rejectClose: false makes dismissal (X / Escape) resolve to null directly,
+  // matching the old `close: () => resolve(null)` handler - the 'cancel'
+  // button's callback below also returns null for symmetry when a button is
+  // used instead. The old V1 `callback` returning `false` from 'ok' never
+  // actually blocked the dialog from closing; the real guard is the confirm
+  // button starting disabled (via `disabled: true` below) and only being
+  // enabled once a thumbnail is clicked, in the `render` callback.
+  const result = await getDialogV2().wait({
+    window: { title: 'Select an Image' },
+    position: { width: 'auto', height: 'auto' },
+    classes: ['runware-image-selection-dialog'],
+    content,
+    rejectClose: false,
+    buttons: [
+      {
+        action: 'ok',
+        icon: 'fas fa-check',
+        label: 'Confirm Selection',
+        disabled: true,
+        callback: () => selectedImageData,
       },
-      default: 'cancel',
-      render: (html) => {
-        const confirmButton = html.closest('.app').find('.dialog-button.ok');
-        confirmButton.prop('disabled', true);
+      {
+        // Preserve the previous default-to-cancel behavior: Enter does nothing
+        // destructive until an image has actually been picked.
+        action: 'cancel',
+        icon: 'fas fa-times',
+        label: 'Cancel',
+        default: true,
+        callback: () => null,
+      },
+    ],
+    render: (event, dialog) => {
+      // DialogV2 passes the application instance here, so the root element is
+      // `dialog.element`. Fall back to `dialog` itself in case a future version
+      // hands the element directly - without a root we silently lose the
+      // click-to-select bindings and the picker becomes unusable.
+      const root = dialog?.element ?? dialog;
+      if (!(root instanceof HTMLElement)) {
+        console.error(`${MODULE_NAME} | Could not resolve the image picker root element.`);
+        return;
+      }
+      const confirmButton = root.querySelector('[data-action="ok"]');
+      const choices = root.querySelectorAll('.image-choice:not(.disabled)');
 
-        html.find('.image-choice').not('.disabled').on('click', function() {
-          const index = $(this).data('index');
+      choices.forEach((choice) => {
+        choice.addEventListener('click', () => {
+          const index = Number(choice.dataset.index);
           selectedImageData = imagesData[index];
 
           // Visual indicator for selection
-          html.find('.image-choice img').css('border-color', 'transparent');
-          $(this).find('img').css('border-color', '#ff6400');
+          root.querySelectorAll('.image-choice img').forEach((thumb) => {
+            thumb.style.borderColor = 'transparent';
+          });
+          const chosenImg = choice.querySelector('img');
+          if (chosenImg) chosenImg.style.borderColor = '#ff6400';
 
-          confirmButton.prop('disabled', false);
+          if (confirmButton) confirmButton.disabled = false;
         });
-      },
-      close: () => resolve(null)
-    }, {
-      width: 'auto',
-      height: 'auto',
-      classes: ['runware-image-selection-dialog']
-    });
-
-    dialog.render(true);
+      });
+    },
   });
+
+  return result ?? null;
 }
 
 // Export module constants for use in other module files

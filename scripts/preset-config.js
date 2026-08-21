@@ -192,6 +192,13 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
   }
 
   _coerceNumber(value, fallback) {
+    // Number('') and Number(null) are both 0 (finite), so a blank/missing
+    // field would otherwise coerce to 0 instead of falling back - e.g. a
+    // cleared LoRA weight silently becoming 0 (disabled) rather than 1
+    // (default). Treat blank/whitespace-only strings and null/undefined as
+    // "no value" up front; a genuine 0 (numeric or string) still passes through.
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string' && value.trim() === '') return fallback;
     const num = Number(value);
     return Number.isFinite(num) ? num : fallback;
   }

@@ -422,7 +422,10 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       .filter((segment) => segment.length > 0)
       .map((segment) => {
         const [model, weightRaw] = segment.split(':').map((part) => part.trim());
-        const weight = weightRaw !== undefined ? Number(weightRaw) : 1;
+        // A blank weight (e.g. "model:" with nothing after the colon) must fall
+        // back to 1, not coerce to Number('') === 0 - same pitfall as
+        // RunwarePresetConfig#_coerceNumber, fixed the same way here.
+        const weight = weightRaw !== undefined && weightRaw !== '' ? Number(weightRaw) : 1;
         return {
           model,
           weight: Number.isFinite(weight) ? weight : 1
@@ -502,7 +505,12 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   async _generateImage(formData) {
     // Dynamically import Runware SDK
     // In production, this should be bundled or loaded via CDN
-    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@latest/+esm');
+    // Pinned to the major version (@1) rather than @latest: @latest currently
+    // resolves to 1.3.2, so this is behaviourally identical today, but it
+    // stops a future 2.x release from being pulled in silently and breaking
+    // every user at once. Keep in sync with the matching import in module.js
+    // (getBackgroundRemovalClient()).
+    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
 
     // Initialize Runware SDK
     if (!this.runware) {

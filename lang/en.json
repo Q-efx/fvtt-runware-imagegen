@@ -1,5 +1,5 @@
 {
-  "runware-image-generator": {
+  "runware-imagegen": {
     "settings": {
       "apiKey": {
         "name": "Runware API Key",

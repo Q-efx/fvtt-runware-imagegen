@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.0]
+
+### Fixed
+
+- **Release packaging**: `module.zip` previously placed `module.json` and `scripts/` under a
+  `build/` directory while `styles/`, `templates/`, and `lang/` sat beside it, so no single
+  directory in the archive was a complete module. Foundry treats the directory holding
+  `module.json` as the package root, so installing from a release produced a module with no
+  templates and no stylesheet - both dialogs failed to render. `build.mjs` now assembles the
+  full module and the workflow zips its contents.
+- **Preset manager discarded unsaved edits**: adding or removing a preset or an embedding
+  re-rendered from stale in-memory state, wiping every unsaved field in every row.
+- **Generation dialog wiped the prompt**: the re-render that shows the progress spinner reset
+  every field, so a failed generation destroyed whatever the user had typed. Form values now
+  survive re-renders.
+- **Prototype token was replaced without consent**: the confirmation dialog asked only about
+  the portrait but always overwrote the token, and declining still paid for a background-removal
+  API call. It now offers portrait, token, both, or neither.
+- **Wasted API calls**: generation is blocked up front when the user lacks Foundry's
+  `FILES_UPLOAD` permission, instead of failing after a paid request.
+- **Silent overwrites**: a failed directory listing no longer falls back to `image_1.png`,
+  which could overwrite a previously generated image.
+- **Nested `<form>` elements**: both dialogs declared `tag: 'form'` and also opened a `<form>`
+  in their template, so the root form owned no controls and `FormData` returned nothing.
+- Preset weights left blank saved as `0` (silently disabling a LoRA) instead of defaulting to `1`.
+- Applying a preset from the dropdown fired twice, duplicating its notification.
+- `_ensureDirectory` threw a `TypeError` when an error carried no `message`, turning a benign
+  "already exists" race into a hard failure.
+- Corrected Runware SDK response field names (`imageURL`, not `img`/`url`).
+
+### Changed
+
+- **Replaced the last ApplicationV1 code with `DialogV2`**: the image picker and the confirmation
+  prompt no longer use the deprecated `Dialog` class or jQuery. Both now build their content with
+  DOM APIs rather than interpolated HTML strings.
+- **Pinned the Runware SDK CDN import** from `@latest` to `@1`, so a future 2.x cannot break the
+  module without a commit here. Behaviour is unchanged today.
+- The advanced-options toggle is a real `<button>`, so it can be operated from the keyboard.
+- `engines.foundryvtt` now matches `module.json`'s v13-v14 compatibility range.
+
+### Removed
+
+- `getActorImages()`, which was unused and pointed at a path nothing writes to.
+
+### Developer
+
+- ESLint now declares Foundry's globals and ignores `build/`, taking the lint output from 172
+  errors (almost entirely noise, which contributors were told to ignore) to 0. Real findings
+  are now visible.
+- `lang/en.json`'s top-level key matches `MODULE_ID`. Nothing reads this file yet; every
+  user-facing string is still hardcoded.
+
 ## [v0.8.1]
 
 ### Changed
