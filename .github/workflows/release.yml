@@ -16,6 +16,28 @@ jobs:
         id: get-version
         run: echo "version-without-v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # Pull the section for this release out of CHANGELOG.md (between its `## [vX.Y.Z]`
+      # heading and the next `## [` heading) to use as the GitHub release body.
+      - name: Extract changelog section
+        id: changelog
+        env:
+          VERSION: ${{ steps.get-version.outputs.version-without-v }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          NOTES=$(awk -v ver="$VERSION" '
+            $0 ~ "^## \\[v" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md | sed -e '/./,$!d')
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG.md](https://github.com/${REPOSITORY}/blob/main/CHANGELOG.md) for details."
+          fi
+          {
+            echo "release-notes<<CHANGELOG_EOF"
+            echo "$NOTES"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Get Module JSON
         id: set_var
         run: |
