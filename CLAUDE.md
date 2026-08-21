@@ -112,10 +112,12 @@ by API key.
 
 ## Gotchas
 
-- **Versions are not in sync.** `module.json` says `1.1.0`, `package.json` says `1.0.0`, the
-  CHANGELOG's newest heading is `v0.6.2`. `module.json` is the one Foundry reads; the release
-  workflow overwrites its `manifest`/`download` fields from the git tag. Update `module.json` and
-  `CHANGELOG.md` when releasing; `package.json`'s version is inert.
+- **Versions can drift out of sync** — as of `v0.8.0`, `module.json`, `package.json`, and the
+  CHANGELOG's newest heading are aligned again, but nothing enforces that. `module.json` is the
+  one Foundry reads; the release workflow overwrites its `manifest`/`download` fields from the git
+  tag. Update `module.json`, `package.json`, `CHANGELOG.md`, and the changelog section in
+  `README.md` together when releasing; `package.json`'s version is inert for Foundry but keep it
+  in sync anyway to avoid confusion.
 - **`lang/en.json` is dead weight.** Nothing calls `game.i18n` anywhere — every user-facing string is
   hardcoded in JS and `.hbs`. Its top-level key is also `runware-image-generator`, which does not
   match `MODULE_ID` (`runware-imagegen`). If you add localization, fix the namespace and migrate
