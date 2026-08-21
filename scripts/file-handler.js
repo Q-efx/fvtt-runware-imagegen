@@ -95,8 +95,13 @@ export class ImageFileHandler {
           try {
             await filePicker.createDirectory('data', currentPath);
           } catch (createErr) {
-            // Ignore error if directory was just created by another process
-            if (!createErr.message.includes('exists')) {
+            // Ignore error if directory was just created by another process.
+            // createErr isn't guaranteed to be an Error with a `.message` (it
+            // could be a string, a plain object, or undefined), so stringify
+            // defensively before checking - otherwise a benign "already exists"
+            // race can throw a TypeError here and abort saveImage() entirely.
+            const createErrMessage = String(createErr?.message ?? createErr ?? '');
+            if (!createErrMessage.includes('exists')) {
               console.warn(`${MODULE_NAME} | Could not create directory ${currentPath}:`, createErr);
             }
           }

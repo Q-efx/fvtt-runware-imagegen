@@ -38,7 +38,14 @@
   max-height: calc(100vh - 220px);
 }
 
-.runware-image-dialog form {
+/*
+ * The AppV2 root element itself is the `<form>` (DEFAULT_OPTIONS.tag ===
+ * 'form' in dialog.js); the part template only wraps its content in a
+ * `.runware-image-form` div (never another <form> - see dialog.js Bug 1
+ * notes for why nesting a second <form> broke form-control ownership).
+ * Target that wrapper by class, not by element type.
+ */
+.runware-image-dialog .runware-image-form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -246,7 +253,17 @@
   margin-top: 0.5rem;
 }
 
+/*
+ * This is a real <button type="button"> (for native keyboard activation -
+ * see dialog.js _onToggleAdvanced), not a <div>. Foundry's core CSS styles
+ * `button` elements fairly aggressively, so the rule below both restates the
+ * intended look AND neutralises the browser/Foundry button defaults
+ * (width, background, border, font, color, text alignment) that would
+ * otherwise leak through.
+ */
 .advanced-toggle {
+  all: unset;
+  box-sizing: border-box;
   cursor: pointer;
   padding: 0.5rem;
   background: var(--color-cool-2);
@@ -255,12 +272,29 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   font-weight: bold;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
   transition: all 0.2s ease;
 }
 
 .advanced-toggle:hover {
   background: var(--color-cool-3);
+}
+
+/*
+ * `all: unset` above also discards the native focus outline a <button>
+ * would otherwise get, which would silently defeat the keyboard-a11y fix
+ * this element exists for. Restore a visible indicator using the same
+ * border/box-shadow highlight treatment `.runware-form-group input:focus`
+ * already uses elsewhere in this file, so keyboard focus stays visible.
+ */
+.advanced-toggle:focus-visible {
+  border-color: var(--color-border-highlight);
+  box-shadow: 0 0 4px var(--color-shadow-highlight);
 }
 
 .advanced-toggle i {

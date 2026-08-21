@@ -20,6 +20,11 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     this.isGenerating = false;
     this.availablePresets = [];
     this.appliedPresetId = null;
+    // Snapshot of the user's live form values, captured just before any
+    // re-render that would otherwise wipe them (see _captureFormState).
+    // Empty until the first capture, at which point _prepareContext prefers
+    // it over the world-setting defaults.
+    this.formState = {};
     this._boundPresetSelect = null;
     this._handlePresetSelectChange = this._handlePresetSelectChange.bind(this);
     this._handlePresetsUpdated = this._handlePresetsUpdated.bind(this);
@@ -41,7 +46,6 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       generate: RunwareImageDialog.prototype._onGenerate,
       cancel: RunwareImageDialog.prototype._onCancel,
       managePresets: RunwareImageDialog.prototype._onManagePresets,
-      presetChange: RunwareImageDialog.prototype._onPresetChange,
       toggleAdvanced: RunwareImageDialog.prototype._onToggleAdvanced
     },
     form: {
@@ -81,13 +85,31 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       return acc;
     }, {});
 
+    // Prefer whatever the user last had in the form (captured just before
+    // this render) over the world-setting defaults, so a re-render triggered
+    // by a failed generation, a spinner, or a live preset update doesn't wipe
+    // out what they typed. `state` is `{}` on first open, so every field
+    // below falls back to its setting/blank default via `??`.
+    const state = this.formState ?? {};
+
     return {
       actor: this.actor,
       actorName: this.actor.name,
-      defaultModel: defaultModel,
-      imageWidth: imageWidth,
-      imageHeight: imageHeight,
-      numberResults: numberResults,
+      prompt: state.prompt ?? '',
+      negativePrompt: state.negativePrompt ?? '',
+      defaultModel: state.model ?? defaultModel,
+      imageWidth: state.width ?? imageWidth,
+      imageHeight: state.height ?? imageHeight,
+      numberResults: state.numberResults ?? numberResults,
+      removeBackground: !!state.removeBackground,
+      loraModel: state.loraModel ?? '',
+      loraWeight: state.loraWeight ?? '1.0',
+      loraTrigger: state.loraTrigger ?? '',
+      vaeModel: state.vaeModel ?? '',
+      embeddings: state.embeddings ?? '',
+      steps: state.steps ?? '',
+      cfgScale: state.cfgScale ?? '',
+      seed: state.seed ?? '',
       isGenerating: this.isGenerating,
       presets: presets,
       presetOptions,
@@ -160,6 +182,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       formData.negativePrompt = negativePromptInput.value.trim();
     }
     // Start generation
+    this._captureFormState(); // Preserve what the user typed before the spinner re-render
     this.isGenerating = true;
     this.render(false); // Re-render to show loading state
 
@@ -185,9 +208,51 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     } finally {
       this.isGenerating = false;
       if (this.rendered) {
+        this._captureFormState(); // Fields are disabled during generation so this is a no-op today, but keeps this re-render self-protecting if that ever changes
         this.render(false);
       }
     }
+  }
+
+  /**
+   * Snapshot the current values of the user-editable form fields into
+   * `this.formState` so they can be restored across a re-render (e.g. a
+   * failed generation, or a preset update pushed by the GM while this dialog
+   * is open). Must be called before `this.render(false)` at every site that
+   * could otherwise wipe the live form.
+   *
+   * The dialog root has `tag: 'form'`, so it IS the form (`this.form`
+   * resolves to `this.element`); the template no longer opens a nested
+   * `<form>` of its own, so every control is genuinely owned by this form.
+   */
+  _captureFormState() {
+    const form = this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const getValue = (name) => {
+      const field = form.elements.namedItem?.(name);
+      return typeof field?.value === 'string' ? field.value : '';
+    };
+
+    const removeBackgroundField = form.elements.namedItem?.('removeBackground');
+
+    this.formState = {
+      prompt: getValue('prompt'),
+      negativePrompt: getValue('negativePrompt'),
+      model: getValue('model'),
+      width: getValue('width'),
+      height: getValue('height'),
+      numberResults: getValue('numberResults'),
+      removeBackground: !!(removeBackgroundField && removeBackgroundField.checked),
+      loraModel: getValue('loraModel'),
+      loraWeight: getValue('loraWeight'),
+      loraTrigger: getValue('loraTrigger'),
+      vaeModel: getValue('vaeModel'),
+      embeddings: getValue('embeddings'),
+      steps: getValue('steps'),
+      cfgScale: getValue('cfgScale'),
+      seed: getValue('seed')
+    };
   }
 
   async _onCancel(event, target) {
@@ -199,12 +264,6 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     event.preventDefault();
     if (!game.user.isGM) return;
     new RunwarePresetConfig().render(true);
-  }
-
-  async _onPresetChange(event, target) {
-    const select = target?.closest('select');
-    const presetId = select?.value ?? '';
-    this._applyPresetSelection(presetId);
   }
 
   _handlePresetSelectChange(event) {
@@ -245,6 +304,19 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const presetSelect = form.querySelector('select[name="presetSelection"]');
     if (presetSelect) {
       presetSelect.value = preset.id;
+    }
+
+    // _onRender re-applies the currently-applied preset "silently" after
+    // every render (including the spinner re-render on generation
+    // start/failure). By that point the freshly-rendered form already shows
+    // the user's last known values via formState - which may include edits
+    // made on top of this preset (e.g. a manually tweaked LoRA weight).
+    // Precedence: an explicit, user-initiated preset pick (silent: false,
+    // from the dropdown) still overwrites every field below, same as
+    // always. A silent re-application only keeps the preset dropdown in
+    // sync and stops here, so it never clobbers the user's own edits.
+    if (silent) {
+      return;
     }
 
     const modelInput = form.querySelector('input[name="model"]');
@@ -288,13 +360,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   }
 
   async _onToggleAdvanced(event, target) {
-    if (event.type === 'keydown') {
-      const key = event.key;
-      if (key !== 'Enter' && key !== ' ') return;
-      event.preventDefault();
-    } else {
-      event.preventDefault();
-    }
+    event.preventDefault();
 
     const toggle = target?.closest('.advanced-toggle');
     if (!toggle) return;
@@ -378,12 +444,19 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     }
 
     if (this.rendered) {
+      this._captureFormState(); // Don't let the GM's preset edit wipe the user's in-progress prompt
       this.render(false);
     }
   }
 
   async _onRender(context, options) {
     if (super._onRender) await super._onRender(context, options);
+    // The template used to open its own `<form autocomplete="off">`; now
+    // that the AppV2 root element IS the form (`tag: 'form'`), that
+    // attribute can only be set here, directly on `this.element`.
+    if (this.element instanceof HTMLFormElement) {
+      this.element.setAttribute('autocomplete', 'off');
+    }
     this._bindPresetSelect();
     if (this.appliedPresetId) {
       this._applyPresetSelection(this.appliedPresetId, { silent: true });

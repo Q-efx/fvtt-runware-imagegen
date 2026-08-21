@@ -153,6 +153,32 @@ function canUserModifyActor(actor) {
   }
 }
 
+/**
+ * Check whether the current user is allowed to upload files, which is required
+ * by ImageFileHandler.saveImage(). The button itself stays visible to anyone who
+ * owns the actor (mirroring the existing apiKey check, which also isn't gated on
+ * button visibility) - this is enforced when the dialog is opened instead, see
+ * openImageGenerationDialog().
+ * @returns {boolean}
+ */
+function hasFileUploadPermission() {
+  if (!game?.user) return false;
+  try {
+    if (typeof game.user.hasPermission === 'function') {
+      return game.user.hasPermission('FILES_UPLOAD');
+    }
+  } catch (err) {
+    console.warn(`${MODULE_NAME} | Failed to evaluate upload permission:`, err);
+    return false;
+  }
+
+  // hasPermission() should always exist on modern Foundry User documents. If it's
+  // missing, fail closed rather than let a paid generation request through only
+  // to fail unsavably afterwards.
+  console.warn(`${MODULE_NAME} | game.user.hasPermission is unavailable; denying by default.`);
+  return false;
+}
+
 function createRunwareHeaderButton(app) {
   return {
     label: 'Generate Image',
@@ -171,6 +197,14 @@ async function openImageGenerationDialog(actorSheet) {
 
   if (!apiKey) {
     ui.notifications.error(`${MODULE_NAME}: Please configure your Runware API key in module settings.`);
+    return;
+  }
+
+  // Generation costs money and saving the result requires Foundry's FILES_UPLOAD
+  // permission. Check up front so a player who owns the actor but lacks upload
+  // rights doesn't pay for a Runware request that can never be saved.
+  if (!hasFileUploadPermission()) {
+    ui.notifications.error(`${MODULE_NAME}: You do not have permission to upload files. Ask your GM to grant the "Upload New Files" permission.`);
     return;
   }
 
@@ -238,31 +272,45 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
     if (savedPath) {
       ui.notifications.info(`${MODULE_NAME}: Image saved successfully at ${savedPath}`);
 
-      // Ask user if they want to set this as the actor's image
-      const previewWidth = selectedImageData?.width
-        ? Math.min(Math.max(Math.round(selectedImageData.width * 0.66), 320), 900)
-        : 640;
+      // Fixed preview width: the Runware SDK response never includes a `width`
+      // field (its shape is imageUUID/imageURL/imageBase64Data/NSFWContent/cost/seed),
+      // so the previous size calculation always fell back to this value anyway.
+      const previewWidth = 640;
 
-      const update = await new Promise((resolve) => {
+      // Ask the user what to do with the generated image. Portrait and token are
+      // asked about together (in one dialog) because setting the prototype token
+      // may trigger a paid background-removal API call - it must not happen
+      // without consent, same as the portrait must not be overwritten without it.
+      const choice = await new Promise((resolve) => {
         new Dialog(
           {
             title: 'Set as Actor Image?',
-            content: `<p>Would you like to set this as the actor's portrait image?</p>
+            content: `<p>Would you like to use this image for the actor's portrait and/or token?</p>
                       <img src="${savedPath}" style="max-width: 100%; border: 1px solid #000;"/>`,
             buttons: {
-              yes: {
+              both: {
                 icon: '<i class="fas fa-check"></i>',
-                label: 'Yes',
-                callback: () => resolve(true),
+                label: 'Portrait + Token',
+                callback: () => resolve({ portrait: true, token: true }),
+              },
+              portraitOnly: {
+                label: 'Portrait Only',
+                callback: () => resolve({ portrait: true, token: false }),
+              },
+              tokenOnly: {
+                label: 'Token Only',
+                callback: () => resolve({ portrait: false, token: true }),
               },
               no: {
                 icon: '<i class="fas fa-times"></i>',
                 label: 'No',
-                callback: () => resolve(false),
+                callback: () => resolve({ portrait: false, token: false }),
               },
             },
-            default: 'yes',
-            close: () => resolve(false),
+            // Keep the previous default-to-yes convenience: pressing Enter or
+            // simply not customizing anything still applies to both, in one click.
+            default: 'both',
+            close: () => resolve({ portrait: false, token: false }),
           },
           {
             width: previewWidth,
@@ -272,44 +320,41 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
       });
 
       const actorUpdates = {};
-      if (update) {
+      if (choice.portrait) {
         actorUpdates.img = savedPath;
       }
 
-      // If background was already removed, we can use the same image for token
-      // Or we can try to remove it again if it wasn't removed (e.g. option not checked)
-      // But the original logic always removed background for token.
-      // Let's keep the original logic for token if background wasn't removed for avatar.
-
       let tokenImagePath = null;
 
-      if (options.removeBackground) {
-        // Background already removed, use the same image for token
-        // But we might want to save it in the tokens directory
-        try {
-          tokenImagePath = await ImageFileHandler.saveImage(actor, selectedImageData, { type: 'token' });
-          if (tokenImagePath) {
-            actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+      if (choice.token) {
+        if (options.removeBackground) {
+          // Background was already removed for the portrait; reuse the same
+          // image data for the token instead of paying for removal again.
+          try {
+            tokenImagePath = await ImageFileHandler.saveImage(actor, selectedImageData, { type: 'token' });
+            if (tokenImagePath) {
+              actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+            }
+          } catch (tokenError) {
+             console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
           }
-        } catch (tokenError) {
-           console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
-        }
-      } else {
-        // Remove background and save as token image (original behavior)
-        let tokenImageData = await removeBackgroundFromImage(selectedImageData);
-        if (!tokenImageData) {
-          console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
-          tokenImageData = selectedImageData;
-        }
+        } else {
+          // Remove background and save as token image (original behavior)
+          let tokenImageData = await removeBackgroundFromImage(selectedImageData);
+          if (!tokenImageData) {
+            console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
+            tokenImageData = selectedImageData;
+          }
 
-        try {
-          tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
-          if (tokenImagePath) {
-            actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+          try {
+            tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
+            if (tokenImagePath) {
+              actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
+            }
+          } catch (tokenError) {
+            console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
+            ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
           }
-        } catch (tokenError) {
-          console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
-          ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
         }
       }
 

@@ -17,7 +17,7 @@ if (existsSync(outDir)) {
 // Build packs
 
 // Copy files and folders to output
-const files = ["scripts", "licenses.md", "module.json"];
+const files = ["scripts", "styles", "templates", "lang", "licenses.md", "module.json"];
 for (const file of files) {
     await fs.cp(file, path.resolve(outDir, file), { recursive: true });
 }

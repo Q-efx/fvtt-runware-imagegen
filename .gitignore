@@ -26,6 +26,7 @@ npm-debug.log*
 # Build artifacts
 dist/
 build/
+module.zip
 
 # Temporary files
 tmp/
