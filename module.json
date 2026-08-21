@@ -1,11 +1,11 @@
 {
   "id": "runware-imagegen",
   "title": "Runware AI Image Generator",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "compatibility": {
     "minimum": "13",
-    "verified": "13.350",
-    "maximum": "13"
+    "verified": "14.367",
+    "maximum": "14"
   },
   "authors": [
     {

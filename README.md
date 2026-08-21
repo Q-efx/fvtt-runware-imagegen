@@ -224,6 +224,9 @@ For issues, feature requests, or questions:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
 
+### Version 0.8.1
+- Verified compatibility with FoundryVTT V14 (build 14.367); no source changes were required
+
 ### Version 0.8.0
 - Security updates to development dependencies (`js-yaml`, `ajv`, `brace-expansion`, `yaml`, `uuid`); no runtime behavior changes
 

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.1]
+
+### Changed
+
+- Verified compatibility with FoundryVTT V14 (tested against build 14.367); bumped
+  `compatibility.maximum` to `14` and `compatibility.verified` to `14.367` in `module.json`.
+  `compatibility.minimum` stays at `13` — no V13-breaking changes were needed.
+
+No source changes were required: the module already avoided every API removed in V14
+(`ApplicationV2#bringToTop`, the `colorPicker`/`select` Handlebars helpers, and the `nameAttr`
+option of `selectOptions`), and both actor sheet header-button hooks
+(`getActorSheetHeaderButtons` for AppV1 sheets, `getHeaderControlsApplicationV2` for AppV2 sheets)
+remain supported in V14.
+
 ## [v0.8.0]
 
 ### Security
