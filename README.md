@@ -222,13 +222,18 @@ For issues, feature requests, or questions:
 
 ## Changelog
 
-### Version 1.1.0
+See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Version 0.8.0
+- Security updates to development dependencies (`js-yaml`, `ajv`, `brace-expansion`, `yaml`, `uuid`); no runtime behavior changes
+
+### Version 0.7.0
 - Added multi-result preview gallery so users can pick the best generation before saving
 - Automatic background removal via Runware RMBG v2.0 with token images saved alongside portraits
 - Enlarged image preview dialog for easier inspection of generated art
 - Introduced GM-managed presets covering model, LoRA, VAE, and embeddings shared with players
 
-### Version 1.0.0
+### Version 0.1.0
 - Initial release
 - Basic text-to-image generation
 - Actor sheet integration
