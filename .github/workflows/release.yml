@@ -63,9 +63,10 @@ jobs:
           npm ci
           npm run build
 
-      # Create a folder containing all the module stuff and zip it for the release
+      # Zip the contents of build/ (already a complete, self-contained module directory)
+      # so that module.json ends up at the root of module.zip, not nested under build/.
       - name: Create Zip
-        run: zip -r9 ./module.zip build/ styles/ lang/ templates/
+        run: cd build && zip -r9 ../module.zip .
 
       - name: Update Release with Files
         id: create_version_release

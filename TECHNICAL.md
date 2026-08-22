@@ -14,11 +14,14 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 #### 2. Main Module File (`scripts/module.js`)
 - **Initialization**: Registers module settings during the `init` hook
 - **Settings**: API key, default model, image dimensions, number of results
-- **Hook Integration**: Adds button to actor sheets via `getActorSheetHeaderButtons`
+- **Hook Integration**: Adds the button to actor sheets via *two* hooks -
+  `getActorSheetHeaderButtons` (AppV1 and custom sheets) and
+  `getHeaderControlsApplicationV2` (AppV2 sheets). Both are required; systems ship a mix.
 - **Orchestration**: Coordinates between dialog, API, and file handler
 
 #### 3. Image Generation Dialog (`scripts/dialog.js`)
-- **FormApplication**: Extends FoundryVTT's FormApplication class
+- **ApplicationV2**: Extends `HandlebarsApplicationMixin(ApplicationV2)`. (This was a
+  `FormApplication` before the ApplicationV2 migration.)
 - **Runware SDK Integration**: Loads SDK dynamically from CDN
 - **User Interface**: Provides form for prompts, models, and parameters
 - **API Communication**: Handles image generation requests
@@ -96,10 +99,11 @@ Actor.update() sets new portrait (if confirmed)
 
 ### FoundryVTT APIs Used
 - **Hooks System**: `init`, `ready`, `getActorSheetHeaderButtons`
-- **FormApplication**: Extended for the dialog
+- **ApplicationV2**: Extended for the dialog and the preset manager
 - **FilePicker API**: For directory creation and file uploads
 - **Settings API**: For module configuration
-- **Dialog API**: For confirmation dialogs
+- **DialogV2 API**: For the confirmation prompt and the multi-image picker.
+  The deprecated ApplicationV1 `Dialog` class was removed in v0.9.0.
 - **Notifications**: For user feedback
 
 ### Runware SDK
@@ -150,21 +154,30 @@ runware-image-generator/
 ├── scripts/
 │   ├── module.js          # Main module entry point
 │   ├── dialog.js          # Image generation dialog
-│   └── file-handler.js    # File operations
+│   ├── preset-config.js   # GM-only preset manager
+│   ├── file-handler.js    # File operations
+│   └── constants.js       # MODULE_ID / MODULE_NAME
 ├── styles/
 │   └── module.css         # Module styles
 ├── templates/
-│   └── image-dialog.hbs   # Dialog template
+│   ├── image-dialog.hbs   # Dialog template
+│   └── preset-config.hbs  # Preset manager template
 ├── lang/
-│   └── en.json           # English translations
-└── images/               # Generated images (auto-created)
+│   └── en.json           # Unused; every string is hardcoded in JS/HBS
+└── images/runware/       # Generated images (auto-created, in the Foundry data root)
     └── [actor-name]/
-        └── image_N.png
+        ├── image_N.png
+        └── tokens/
+            └── token_N.png
 ```
 
 ## Security Considerations
 
-1. **API Key Storage**: Stored in world settings (GM-only access)
+1. **API Key Storage**: Stored in a world-scope setting, which only a GM can *edit*.
+   Note that Foundry sends world settings to every connected client, so any player can
+   read the key from the browser console. This is inherent to letting players generate
+   images directly. If that is not acceptable for your table, do not distribute the key
+   this way - see SETUP.md.
 2. **File Permissions**: Uses FoundryVTT's FilePicker API (respects user permissions)
 3. **Input Validation**: Validates all form inputs before API calls
 4. **Error Handling**: Catches and displays errors gracefully
@@ -311,6 +324,6 @@ const filename = `custom_name_${imageNumber}.png`;
 
 ---
 
-**Module Version**: 0.8.1
+**Module Version**: 0.9.0
 **FoundryVTT Version**: v13-v14 (verified v14.367)
 **Last Updated**: 2026

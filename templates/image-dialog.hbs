@@ -1,4 +1,4 @@
-<form class="runware-image-form" autocomplete="off">
+<div class="runware-image-form">
 
   {{#if isGenerating}}
   <div class="runware-loading">
@@ -28,7 +28,7 @@
         placeholder="Describe the image you want to generate..."
         required
         {{#if isGenerating}}disabled{{/if}}
-      ></textarea>
+      >{{prompt}}</textarea>
       <small>Describe what you want to see in the image</small>
     </div>
 
@@ -39,7 +39,7 @@
         id="negativePrompt"
         placeholder="Describe what you don't want to see..."
         {{#if isGenerating}}disabled{{/if}}
-      ></textarea>
+      >{{negativePrompt}}</textarea>
       <small>Optional: Describe what you want to avoid in the image</small>
     </div>
   </div>
@@ -52,7 +52,7 @@
     <div class="runware-form-group preset-selector">
       <label for="presetSelection">Preset</label>
       <div class="preset-controls">
-        <select name="presetSelection" id="presetSelection" data-action="presetChange" {{#if isGenerating}}disabled{{/if}}>
+        <select name="presetSelection" id="presetSelection" {{#if isGenerating}}disabled{{/if}}>
           {{selectOptions presetOptions selected=appliedPresetId blank="Select a preset..."}}
         </select>
         {{#if canManagePresets}}
@@ -145,7 +145,7 @@
 
     <div class="runware-form-group">
       <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-        <input type="checkbox" name="removeBackground" {{#if isGenerating}}disabled{{/if}} style="width: auto; margin: 0;">
+        <input type="checkbox" name="removeBackground" {{#if removeBackground}}checked{{/if}} {{#if isGenerating}}disabled{{/if}} style="width: auto; margin: 0;">
         Remove Background
       </label>
       <small>Automatically remove the background from the generated image</small>
@@ -157,10 +157,10 @@
     <h3><i class="fas fa-cog"></i> Advanced Options</h3>
 
     <div class="advanced-options">
-      <div class="advanced-toggle collapsed" data-action="toggleAdvanced" data-toggle="advanced" role="button" tabindex="0">
+      <button type="button" class="advanced-toggle collapsed" data-action="toggleAdvanced">
         <span>Show Advanced Options</span>
         <i class="fas fa-chevron-down"></i>
-      </div>
+      </button>
 
       <div class="advanced-content">
         <!-- LoRA Model -->
@@ -170,6 +170,7 @@
             <input
               type="text"
               name="loraModel"
+              value="{{loraModel}}"
               placeholder="e.g., civitai:12345@67890"
               {{#if isGenerating}}disabled{{/if}}
             />
@@ -179,7 +180,7 @@
                 type="number"
                 name="loraWeight"
                 id="loraWeight"
-                value="1.0"
+                value="{{loraWeight}}"
                 min="0"
                 max="2"
                 step="0.1"
@@ -193,6 +194,7 @@
               type="text"
               name="loraTrigger"
               id="loraTrigger"
+              value="{{loraTrigger}}"
               placeholder="e.g., style keyword"
               {{#if isGenerating}}disabled{{/if}}
             />
@@ -206,6 +208,7 @@
             type="text"
             name="vaeModel"
             id="vaeModel"
+            value="{{vaeModel}}"
             placeholder="e.g., runware:vae@1"
             {{#if isGenerating}}disabled{{/if}}
           />
@@ -219,7 +222,7 @@
             id="embeddings"
             placeholder="One embedding per line. Optionally append :weight, e.g., concept:0.8"
             {{#if isGenerating}}disabled{{/if}}
-          ></textarea>
+          >{{embeddings}}</textarea>
           <small>Embeddings adjust the prompt with additional learned concepts.</small>
         </div>
 
@@ -230,6 +233,7 @@
             type="number"
             name="steps"
             id="steps"
+            value="{{steps}}"
             placeholder="20-50 recommended"
             min="1"
             max="150"
@@ -245,6 +249,7 @@
             type="number"
             name="cfgScale"
             id="cfgScale"
+            value="{{cfgScale}}"
             placeholder="7.0 recommended"
             min="1"
             max="30"
@@ -261,6 +266,7 @@
             type="number"
             name="seed"
             id="seed"
+            value="{{seed}}"
             placeholder="Leave empty for random"
             {{#if isGenerating}}disabled{{/if}}
           />
@@ -280,4 +286,4 @@
     </button>
   </div>
 
-</form>
+</div>

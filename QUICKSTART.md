@@ -23,17 +23,20 @@
 Start reading here: `scripts/module.js`
 
 ### Key Files
-- `scripts/module.js` - Initialization, hooks, settings
+- `scripts/module.js` - Initialization, hooks, settings, post-generation flow
 - `scripts/dialog.js` - Form dialog for image generation
+- `scripts/preset-config.js` - GM-only preset manager
 - `scripts/file-handler.js` - File operations
 - `templates/image-dialog.hbs` - Dialog HTML template
+- `templates/preset-config.hbs` - Preset manager template
 - `styles/module.css` - Styling
 
 ### How It Works
 ```
 User clicks button → Dialog opens → Form submitted →
-Runware API called → Image received → File saved →
-User confirms → Actor updated
+Runware API called → Image(s) received → User picks one (if >1) →
+Optional background removal → File saved →
+User chooses portrait / token / both / neither → Actor updated
 ```
 
 ### Testing Locally
@@ -43,8 +46,9 @@ User confirms → Actor updated
 4. Test on a character sheet
 
 ### Key APIs Used
-- FoundryVTT: `FormApplication`, `FilePicker`, `Hooks`, `Settings`
-- Runware: Loaded from `https://cdn.jsdelivr.net/npm/@runware/sdk-js@latest/+esm`
+- FoundryVTT: `ApplicationV2`, `DialogV2`, `FilePicker`, `Hooks`, `Settings`
+- Runware: Loaded from `https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm`
+  (pinned to major v1; `@latest` risked an upstream release breaking the module)
 - Web: `FormData`, `Blob`, `File`, ES6 modules
 
 ### Customization Points
@@ -141,9 +145,12 @@ runware-image-generator/
 ├── scripts/
 │   ├── module.js          # Entry point ⭐
 │   ├── dialog.js          # Dialog UI ⭐
-│   └── file-handler.js    # File ops ⭐
+│   ├── preset-config.js   # Preset manager
+│   ├── file-handler.js    # File ops ⭐
+│   └── constants.js       # Module id/name
 ├── templates/
-│   └── image-dialog.hbs   # Template ⭐
+│   ├── image-dialog.hbs   # Template ⭐
+│   └── preset-config.hbs  # Preset template
 ├── styles/
 │   └── module.css         # Styles
 ├── lang/

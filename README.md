@@ -224,6 +224,16 @@ For issues, feature requests, or questions:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
 
+### Version 0.9.0
+- Added automatic Runware API key validation when it's saved, and clear, actionable errors (instead of a silent minute-long hang) when generation or background removal hits an invalid key
+- Fixed release packaging: previous release zips installed without templates or CSS, leaving both dialogs unable to render
+- Fixed two data-loss bugs: the preset manager discarded unsaved edits, and a failed generation wiped your prompt
+- The prototype token is no longer replaced without asking, and declining no longer costs a background-removal call
+- Generation is blocked up front if you lack Foundry's "Upload New Files" permission, instead of failing after a paid request
+- Replaced the last deprecated ApplicationV1 dialogs with DialogV2; removed the module's remaining jQuery
+- Pinned the Runware SDK CDN import to major version 1 so an upstream release cannot break the module unannounced
+- The advanced-options toggle is now keyboard accessible
+
 ### Version 0.8.1
 - Verified compatibility with FoundryVTT V14 (build 14.367); no source changes were required
 

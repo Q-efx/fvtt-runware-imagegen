@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-A **FoundryVTT v13 module** (`runware-imagegen`) that adds a "Generate Image" button to actor
+A **FoundryVTT v13/v14 module** (`runware-imagegen`) that adds a "Generate Image" button to actor
 sheets. The button opens a dialog for generating character/NPC portraits through the
 [Runware](https://runware.ai) AI API, saves the results into the Foundry user data directory,
 and optionally sets them as the actor portrait and prototype token image.
@@ -16,9 +16,9 @@ browser, plus Handlebars templates and one CSS file.
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Runs `build.mjs`: wipes `build/`, copies `scripts/`, `licenses.md`, `module.json` into it. No transpiling, no bundling. |
+| `npm run build` | Runs `build.mjs`: wipes `build/`, copies `scripts/`, `styles/`, `templates/`, `lang/`, `licenses.md`, `module.json` into it, making `build/` a complete module. No transpiling, no bundling. |
 | `npm run lint` / `npm test` | **Stubs** that just `echo`. There is no test suite. |
-| `npx eslint .` | Works, but the config has no Foundry globals, so it reports ~166 `no-undef` errors for `game`, `ui`, `Hooks`, `foundry`, `Actor`, etc. Treat these as noise; only new errors of other kinds matter. |
+| `npx eslint .` | Clean (0 errors) as of v0.9.0. The flat config declares Foundry's globals and ignores `build/`, so any finding is real - do not ignore it. `no-unused-vars` runs with `args: "none"` because Foundry's callback signatures have fixed parameter lists. |
 
 **Testing is manual, inside Foundry.** Symlink or copy the repo into `Data/modules/runware-imagegen`,
 reload the world, open an actor sheet. There is no way to exercise this code outside the Foundry
@@ -67,8 +67,9 @@ sheet button → openImageGenerationDialog() [module.js]
 `N` auto-increments by browsing the directory and taking `max + 1`. The actor slug is
 `name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()`.
 
-Note: `getActorImages()` still points at the older `modules/<MODULE_ID>/images/...` path and does
-not match where `saveImage()` writes. It is currently unused — fix the path if you start calling it.
+`_getNextImageNumber()` deliberately does **not** swallow browse failures: returning `1` on an
+error would overwrite an existing `image_1.png`. A `getActorImages()` helper used to live here
+with a stale path; it was unused and was removed in v0.9.0.
 
 ## Foundry conventions to follow
 
@@ -78,9 +79,12 @@ Wire buttons by putting `data-action="name"` in the `.hbs` and mapping
 `name: ClassName.prototype._onName` in `static DEFAULT_OPTIONS.actions`. Handlers receive
 `(event, target)`.
 
-Legacy `Dialog` (AppV1) plus jQuery is still used for the two confirmation popups in `module.js`
-(`showImageSelectionDialog`, the "Set as Actor Image?" prompt). Leave those alone unless converting
-deliberately; don't copy the pattern into new code.
+**No ApplicationV1 anywhere.** As of v0.9.0 the two popups in `module.js`
+(`showImageSelectionDialog` and the "Set as Actor Image?" prompt) use
+`foundry.applications.api.DialogV2`, reached through the `getDialogV2()` helper. There is no
+jQuery left in the module - don't reintroduce either. DialogV2 **rejects on dismissal by
+default**: both call sites pass `rejectClose: false` and normalise the resulting `null`, and any
+new dialog must do the same or an X-click becomes an unhandled rejection.
 
 **Template paths must be literal:** `` `modules/${MODULE_ID}/templates/image-dialog.hbs` ``.
 Foundry resolves these against the installed module directory, so the folder name in
@@ -101,28 +105,29 @@ The same defensive style (`foundry?.applications?.…` with fallbacks) is used t
 **The Runware SDK is loaded from a CDN at runtime**, not bundled:
 
 ```js
-const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@latest/+esm');
+const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
 ```
 
 This appears twice — `dialog.js:_generateImage()` and `module.js:getBackgroundRemovalClient()`. The
 `@runware/sdk-js` entry in `package.json` is a `peerDependency` for documentation only; it is not
-installed into the shipped module. `@latest` means an upstream SDK release can break the module
-without any commit here. Background removal uses model `runware:110@1` and caches its client keyed
+installed into the shipped module. The import is pinned to `@1` (was `@latest`, which let an
+upstream release break the module with no commit here) - keep both occurrences in sync. Background removal uses model `runware:110@1` and caches its client keyed
 by API key.
 
 ## Gotchas
 
-- **Versions can drift out of sync** — as of `v0.8.0`, `module.json`, `package.json`, and the
-  CHANGELOG's newest heading are aligned again, but nothing enforces that. `module.json` is the
+- **Versions can drift out of sync** — as of `v0.9.0`, `module.json`, `package.json`, and the
+  CHANGELOG's newest heading are aligned, but nothing enforces that. `module.json` is the
   one Foundry reads; the release workflow overwrites its `manifest`/`download` fields from the git
   tag. Update `module.json`, `package.json`, `CHANGELOG.md`, and the changelog section in
   `README.md` together when releasing; `package.json`'s version is inert for Foundry but keep it
   in sync anyway to avoid confusion.
 - **`lang/en.json` is dead weight.** Nothing calls `game.i18n` anywhere — every user-facing string is
-  hardcoded in JS and `.hbs`. Its top-level key is also `runware-image-generator`, which does not
-  match `MODULE_ID` (`runware-imagegen`). If you add localization, fix the namespace and migrate
-  strings; otherwise don't bother editing it, it has no effect.
-- **API keys.** Stored in the world setting `apiKey` (GM scope). `.pre-commit-config.yaml` runs
+  hardcoded in JS and `.hbs`. Its top-level key was corrected to `runware-imagegen` in v0.9.0, but
+  the file still has no effect until someone migrates the hardcoded strings.
+- **API keys.** Stored in the world setting `apiKey`. Only a GM can edit it, but Foundry ships
+  world settings to every client, so **any player can read it from the console** — this is
+  documented in `SETUP.md`, don't describe it as GM-only. `.pre-commit-config.yaml` runs
   **gitleaks** — never commit a key, not even in a doc example or a test fixture.
 - **Settings are all `scope: 'world'`**, so they are GM-controlled and shared. `generationPresets`
   is `config: false` and edited only through the preset menu; changes fire the custom hook
@@ -133,11 +138,12 @@ by API key.
 
 Publishing a GitHub release with tag `vX.Y.Z` triggers `.github/workflows/release.yml`, which
 substitutes the versioned manifest/download URLs into `module.json`, runs `npm ci && npm run build`,
-zips `build/ styles/ lang/ templates/` as `module.zip`, attaches both to the release, and (for
+zips the **contents of `build/`** as `module.zip` (so `module.json` sits at the archive root —
+zipping `build/` itself put the manifest one level down and dropped `styles/`, `templates/`, and
+`lang/`, which was the v0.9.0 packaging fix), attaches both to the release, and (for
 non-prereleases, if `PACKAGE_TOKEN` is set) publishes to the FoundryVTT package registry.
 
 ## Docs
 
 `README.md` (user-facing), `QUICKSTART.md`, `SETUP.md` (install/config), `TECHNICAL.md` (deeper
-architecture write-up). `TECHNICAL.md` predates the ApplicationV2 migration — it still describes the
-dialog as a `FormApplication` and lists a stale file tree. Verify against `scripts/` before trusting it.
+architecture write-up). All four were brought back in sync with the code in v0.9.0.

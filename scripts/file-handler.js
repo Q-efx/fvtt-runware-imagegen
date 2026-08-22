@@ -4,7 +4,7 @@
  * Utilities for saving generated images to the FoundryVTT data directory
  */
 
-import { MODULE_ID, MODULE_NAME } from './constants.js';
+import { MODULE_NAME } from './constants.js';
 
 export class ImageFileHandler {
   /**
@@ -40,7 +40,6 @@ export class ImageFileHandler {
 
       // Create filename
       const filename = `${filenamePrefix}${imageNumber}.png`;
-      const fullPath = `${dirPath}/${filename}`;
 
       // Convert base64 to blob
       const blob = this._base64ToBlob(base64Data, 'image/png');
@@ -75,7 +74,7 @@ export class ImageFileHandler {
     try {
       // Try to browse the directory to see if it exists
       await filePicker.browse('data', path);
-    } catch (error) {
+    } catch {
       // Directory doesn't exist, create it
       console.log(`${MODULE_NAME} | Creating directory:`, path);
 
@@ -90,13 +89,18 @@ export class ImageFileHandler {
 
         try {
           await filePicker.browse('data', currentPath);
-        } catch (err) {
+        } catch {
           // This directory level doesn't exist, create it
           try {
             await filePicker.createDirectory('data', currentPath);
           } catch (createErr) {
-            // Ignore error if directory was just created by another process
-            if (!createErr.message.includes('exists')) {
+            // Ignore error if directory was just created by another process.
+            // createErr isn't guaranteed to be an Error with a `.message` (it
+            // could be a string, a plain object, or undefined), so stringify
+            // defensively before checking - otherwise a benign "already exists"
+            // race can throw a TypeError here and abort saveImage() entirely.
+            const createErrMessage = String(createErr?.message ?? createErr ?? '');
+            if (!createErrMessage.includes('exists')) {
               console.warn(`${MODULE_NAME} | Could not create directory ${currentPath}:`, createErr);
             }
           }
@@ -112,36 +116,46 @@ export class ImageFileHandler {
    */
   static async _getNextImageNumber(dirPath, filenamePrefix = 'image_') {
     const filePicker = this._getFilePicker();
-    try {
-      // Browse the directory to get existing files
-      const result = await filePicker.browse('data', dirPath);
 
-      if (!result || !result.files) {
-        return 1;
-      }
+    // Browse the directory to get existing files. _ensureDirectory() has
+    // just run (in saveImage(), immediately before this is called) and
+    // creates dirPath if it wasn't already there, so by this point dirPath
+    // should exist. A browse() failure here is therefore *not* the normal
+    // "brand new actor, no images yet" case - that case returns a `result`
+    // with an empty/missing `files` array, handled below without throwing.
+    // A thrown error here means something else went wrong (permissions,
+    // a network blip, a backend hiccup, or _ensureDirectory silently
+    // failing to create the directory). Treating that the same as "empty
+    // directory" and returning 1 would make the caller upload as
+    // `image_1.png` / `token_1.png`, silently overwriting a previously
+    // generated image with no warning. So we deliberately do NOT catch and
+    // fall back to 1 here; we let the error propagate. saveImage() already
+    // wraps this call in a try/catch and rethrows, and module.js surfaces
+    // error.message to the user via ui.notifications.error, so this is a
+    // real (if unlikely) failure path, not a swallowed one.
+    const result = await filePicker.browse('data', dirPath);
 
-      const escapedPrefix = filenamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const filenameRegex = new RegExp(`${escapedPrefix}(\\d+)\\.png$`);
-
-      // Find all image files and extract numbers
-      const numbers = result.files
-        .map(file => {
-          const match = file.match(filenameRegex);
-          return match ? parseInt(match[1]) : 0;
-        })
-        .filter(num => num > 0);
-
-      if (numbers.length === 0) {
-        return 1;
-      }
-
-      // Return the highest number + 1
-      return Math.max(...numbers) + 1;
-
-    } catch (error) {
-      // Directory doesn't exist or is empty
+    if (!result || !result.files) {
       return 1;
     }
+
+    const escapedPrefix = filenamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filenameRegex = new RegExp(`${escapedPrefix}(\\d+)\\.png$`);
+
+    // Find all image files and extract numbers
+    const numbers = result.files
+      .map(file => {
+        const match = file.match(filenameRegex);
+        return match ? parseInt(match[1]) : 0;
+      })
+      .filter(num => num > 0);
+
+    if (numbers.length === 0) {
+      return 1;
+    }
+
+    // Return the highest number + 1
+    return Math.max(...numbers) + 1;
   }
 
   /**
@@ -173,37 +187,16 @@ export class ImageFileHandler {
     return new Blob(byteArrays, { type: contentType });
   }
 
-  /**
-   * Get all images for a specific actor
-   * @param {Actor} actor - The actor
-   * @returns {Promise<Array<string>>} Array of image paths
-   */
-  static async getActorImages(actor) {
-    try {
-      const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-      const dirPath = `modules/${MODULE_ID}/images/${actorNameClean}`;
-
-      const filePicker = this._getFilePicker();
-      const result = await filePicker.browse('data', dirPath);
-
-      if (!result || !result.files) {
-        return [];
-      }
-
-      // Filter for PNG images and sort by number
-      return result.files
-        .filter(file => file.endsWith('.png'))
-        .sort((a, b) => {
-          const numA = parseInt(a.match(/image_(\d+)\.png$/)?.[1] || '0');
-          const numB = parseInt(b.match(/image_(\d+)\.png$/)?.[1] || '0');
-          return numA - numB;
-        });
-
-    } catch (error) {
-      console.warn(`${MODULE_NAME} | No images found for actor:`, actor.name);
-      return [];
-    }
-  }
+  // Note: a getActorImages() helper used to live here, browsing
+  // `modules/${MODULE_ID}/images/<actor>` for previously generated images.
+  // That path doesn't match where saveImage() actually writes
+  // (`images/runware/<actor>` / `.../tokens`, at the Foundry data root, not
+  // under the module folder) and the function had no callers anywhere in
+  // scripts/ or templates/ - confirmed by repo-wide grep before removing it.
+  // Removed as dead code with a broken path rather than "fixed", since
+  // nothing depends on its shape (return value, sort order, or lack of a
+  // `type`/tokens argument) yet; reintroduce it pointed at the current
+  // saveImage() layout if/when something needs to list existing images.
 
   static _getFilePicker() {
     const implementation = foundry?.applications?.apps?.FilePicker?.implementation;

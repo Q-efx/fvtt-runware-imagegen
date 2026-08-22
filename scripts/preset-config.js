@@ -46,6 +46,15 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     }
   };
 
+  async _onRender(context, options) {
+    if (super._onRender) await super._onRender(context, options);
+    // The template's inner <form> was removed to avoid nesting under the
+    // AppV2 root <form> (see _commitPresetChanges/_syncPresetsFromForm); set
+    // autocomplete="off" here instead since the root element can't take the
+    // attribute from the template.
+    this.element?.setAttribute('autocomplete', 'off');
+  }
+
   async _prepareContext(options) {
     if (!Array.isArray(this.presets)) {
       this.presets = this._loadPresets();
@@ -115,9 +124,12 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     }
 
     try {
+      // game.settings.set() triggers the setting's own onChange callback
+      // (registered in module.js), which dispatches 'presetsUpdated' to every
+      // open dialog. Dispatching it again here would fire the hook twice per
+      // save, so this is the only place that call happens.
       await game.settings.set(MODULE_ID, 'generationPresets', presets);
       this.presets = this._loadPresets();
-      Hooks.callAll('runware-imagegen.presetsUpdated', this.presets);
       ui.notifications.info(`${MODULE_NAME}: Presets saved.`);
       await this.close();
     } catch (error) {
@@ -180,11 +192,20 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
   }
 
   _coerceNumber(value, fallback) {
+    // Number('') and Number(null) are both 0 (finite), so a blank/missing
+    // field would otherwise coerce to 0 instead of falling back - e.g. a
+    // cleared LoRA weight silently becoming 0 (disabled) rather than 1
+    // (default). Treat blank/whitespace-only strings and null/undefined as
+    // "no value" up front; a genuine 0 (numeric or string) still passes through.
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string' && value.trim() === '') return fallback;
     const num = Number(value);
     return Number.isFinite(num) ? num : fallback;
   }
 
   _addPreset() {
+    this._syncPresetsFromForm();
+
     if (!Array.isArray(this.presets)) {
       this.presets = [];
     }
@@ -206,11 +227,13 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
 
   _removePreset(presetId) {
     if (!presetId) return;
+    this._syncPresetsFromForm();
     this.presets = this.presets.filter((preset) => preset.id !== presetId);
     this.render(true);
   }
 
   _addEmbedding(presetId) {
+    this._syncPresetsFromForm();
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) return;
     preset.embeddings.push({ model: '', weight: 1 });
@@ -218,6 +241,7 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
   }
 
   _removeEmbedding(presetId, index) {
+    this._syncPresetsFromForm();
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) return;
     if (index < 0 || index >= preset.embeddings.length) return;
@@ -225,8 +249,27 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     this.render(true);
   }
 
-  _readPresetRow(row) {
-    const presetId = row.dataset.presetId || foundry.utils.randomID();
+  /**
+   * Rebuild this.presets from the live form inputs, preserving each row's existing
+   * preset id and every embedding row (including blank ones) at its current index.
+   * Called before any mutation handler re-renders, so unsaved edits in other rows
+   * survive the re-render instead of being discarded.
+   */
+  _syncPresetsFromForm() {
+    const form = this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const rows = Array.from(form.querySelectorAll('.preset-row'));
+    this.presets = rows.map((row) => this._normalizePreset(this._extractPresetFields(row)));
+  }
+
+  /**
+   * Read the raw, unvalidated field values out of a preset row. Shared by the
+   * save-path validator (_readPresetRow) and the interim sync (_syncPresetsFromForm)
+   * so the input selectors only live in one place. Blank values and blank
+   * embedding rows are preserved as-is - callers decide whether/how to validate.
+   */
+  _extractPresetFields(row) {
     const nameInput = row.querySelector('input[name="preset-name"]');
     const modelInput = row.querySelector('input[name="preset-model"]');
     const widthInput = row.querySelector('input[name="preset-width"]');
@@ -236,63 +279,79 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
     const vaeInput = row.querySelector('input[name="preset-vae"]');
 
-    const name = nameInput?.value.trim() ?? '';
-    const model = modelInput?.value.trim() ?? '';
+    const embeddings = Array.from(row.querySelectorAll('.embedding-row')).map((embedRow) => {
+      const modelField = embedRow.querySelector('input[name="embedding-model"]');
+      const weightField = embedRow.querySelector('input[name="embedding-weight"]');
+      return {
+        model: modelField?.value.trim() ?? '',
+        weight: weightField?.value ?? 1
+      };
+    });
 
-    if (!name) {
+    return {
+      id: row.dataset.presetId || null,
+      name: nameInput?.value.trim() ?? '',
+      model: modelInput?.value.trim() ?? '',
+      width: widthInput?.value ?? '',
+      height: heightInput?.value ?? '',
+      lora: {
+        model: loraModelInput?.value.trim() ?? '',
+        weight: loraWeightInput?.value ?? 1,
+        trigger: loraTriggerInput?.value.trim() ?? ''
+      },
+      vae: vaeInput?.value.trim() ?? '',
+      embeddings
+    };
+  }
+
+  _readPresetRow(row) {
+    const fields = this._extractPresetFields(row);
+    const presetId = fields.id || foundry.utils.randomID();
+
+    if (!fields.name) {
       ui.notifications.error(`${MODULE_NAME}: Preset name cannot be empty.`);
       return null;
     }
 
-    if (!model) {
-      ui.notifications.error(`${MODULE_NAME}: Preset "${name}" must specify a model.`);
+    if (!fields.model) {
+      ui.notifications.error(`${MODULE_NAME}: Preset "${fields.name}" must specify a model.`);
       return null;
     }
 
     const preset = {
       id: presetId,
-      name,
-      model
+      name: fields.name,
+      model: fields.model
     };
 
-    const width = this._coerceDimension(widthInput?.value);
+    const width = this._coerceDimension(fields.width);
     if (width) {
       preset.width = width;
     }
 
-    const height = this._coerceDimension(heightInput?.value);
+    const height = this._coerceDimension(fields.height);
     if (height) {
       preset.height = height;
     }
 
-    const loraModel = loraModelInput?.value.trim() ?? '';
-    const loraTrigger = loraTriggerInput?.value.trim() ?? '';
-    if (loraModel) {
+    if (fields.lora.model) {
       preset.lora = {
-        model: loraModel,
-        weight: this._coerceNumber(loraWeightInput?.value, 1),
-        trigger: loraTrigger
+        model: fields.lora.model,
+        weight: this._coerceNumber(fields.lora.weight, 1),
+        trigger: fields.lora.trigger
       };
     }
 
-    const vae = vaeInput?.value.trim() ?? '';
-    if (vae) {
-      preset.vae = vae;
+    if (fields.vae) {
+      preset.vae = fields.vae;
     }
 
-    const embeddingRows = row.querySelectorAll('.embedding-row');
-    const embeddings = [];
-
-    embeddingRows.forEach((embedRow) => {
-      const modelField = embedRow.querySelector('input[name="embedding-model"]');
-      const weightField = embedRow.querySelector('input[name="embedding-weight"]');
-      const embedModel = modelField?.value.trim() ?? '';
-      if (!embedModel) return;
-      embeddings.push({
-        model: embedModel,
-        weight: this._coerceNumber(weightField?.value, 1)
-      });
-    });
+    const embeddings = fields.embeddings
+      .filter((embed) => embed.model)
+      .map((embed) => ({
+        model: embed.model,
+        weight: this._coerceNumber(embed.weight, 1)
+      }));
 
     if (embeddings.length > 0) {
       preset.embeddings = embeddings;

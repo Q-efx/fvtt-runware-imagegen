@@ -47,14 +47,17 @@ runware-image-generator/
 ├── scripts/
 │   ├── module.js       # Main module file
 │   ├── dialog.js       # Image generation dialog
-│   └── file-handler.js # File saving utilities
+│   ├── preset-config.js # GM-only preset manager
+│   ├── file-handler.js # File saving utilities
+│   └── constants.js    # Module id/name
 ├── styles/
 │   └── module.css      # Module styles
 ├── templates/
-│   └── image-dialog.hbs # Dialog template
+│   ├── image-dialog.hbs # Dialog template
+│   └── preset-config.hbs # Preset manager template
 ├── lang/
-│   └── en.json         # English translations
-└── images/             # Generated images (created automatically)
+│   └── en.json         # Unused; all strings are hardcoded
+└── images/runware/     # Generated images (in the Foundry data root)
 ```
 
 ## Getting a Runware API Key
@@ -67,6 +70,21 @@ runware-image-generator/
 6. Click **Create New API Key**
 7. Copy the API key
 8. Paste it into the FoundryVTT module settings
+
+### Who can see your API key
+
+The key is stored in a **world-scope setting**. Only a GM can change it in the settings UI,
+but Foundry sends world settings to every connected client, so **any player in your world can
+read the key from the browser console**. That is unavoidable if players are to generate images
+themselves, since the request is made from their browser.
+
+If that is not acceptable for your table:
+
+- Use a key with a spending cap, and rotate it if it leaks.
+- Or restrict actor ownership so only trusted users see the "Generate Image" button.
+
+Generation also requires Foundry's **Upload New Files** permission - a user without it is told
+so up front rather than being charged for a request whose result cannot be saved.
 
 ## Module Settings
 
