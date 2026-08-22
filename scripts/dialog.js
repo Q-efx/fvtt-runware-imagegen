@@ -6,6 +6,8 @@
 
 import { MODULE_ID, MODULE_NAME } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
+import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
+import { checkRunwareApiKey } from './runware-connection.js';
 
 export class RunwareImageDialog extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2
@@ -204,7 +206,14 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
     } catch (error) {
       console.error(`${MODULE_NAME} | Image generation error:`, error);
-      ui.notifications.error(`${MODULE_NAME}: Image generation failed - ${error.message}`);
+      // The Runware SDK doesn't always reject with a proper Error (see
+      // runware-errors.js) - normalise it so the notification always shows a
+      // real message instead of "undefined", and call out an invalid API key
+      // specifically since that's the failure the GM can actually fix.
+      const notification = isInvalidApiKeyError(error)
+        ? `${MODULE_NAME}: Image generation failed - invalid Runware API key. Ask your GM to update it in Settings.`
+        : `${MODULE_NAME}: Image generation failed - ${getRunwareErrorMessage(error)}`;
+      ui.notifications.error(notification);
     } finally {
       this.isGenerating = false;
       if (this.rendered) {
@@ -514,6 +523,10 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
     // Initialize Runware SDK
     if (!this.runware) {
+      // Check the key ourselves first: Runware.initialize()'s own failure
+      // detection can take up to a minute to report an invalid key instead
+      // of failing fast - see runware-connection.js for why.
+      await checkRunwareApiKey(this.apiKey);
       this.runware = await Runware.initialize({ apiKey: this.apiKey });
     }
 

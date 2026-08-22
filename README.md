@@ -225,6 +225,7 @@ For issues, feature requests, or questions:
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
 
 ### Version 0.9.0
+- Added automatic Runware API key validation when it's saved, and clear, actionable errors (instead of a silent minute-long hang) when generation or background removal hits an invalid key
 - Fixed release packaging: previous release zips installed without templates or CSS, leaving both dialogs unable to render
 - Fixed two data-loss bugs: the preset manager discarded unsaved edits, and a failed generation wiped your prompt
 - The prototype token is no longer replaced without asking, and declining no longer costs a background-removal call

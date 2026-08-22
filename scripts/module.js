@@ -9,6 +9,8 @@ import { RunwareImageDialog } from './dialog.js';
 import { ImageFileHandler } from './file-handler.js';
 import { RunwarePresetConfig } from './preset-config.js';
 import { MODULE_ID, MODULE_NAME } from './constants.js';
+import { getRunwareErrorMessage } from './runware-errors.js';
+import { checkRunwareApiKey } from './runware-connection.js';
 
 /**
  * Initialize the module
@@ -19,11 +21,20 @@ Hooks.once('init', async function() {
   // Register module settings
   game.settings.register(MODULE_ID, 'apiKey', {
     name: 'Runware API Key',
-    hint: 'Your Runware API key for image generation',
+    hint: 'Your Runware API key for image generation. Verified automatically whenever it is changed.',
     scope: 'world',
     config: true,
     type: String,
     default: '',
+    // Fires on every connected client whenever this world setting actually
+    // changes value (not on every settings-form save) - it's a world setting,
+    // so the change is broadcast to everyone. Guard on isGM so a key edit
+    // doesn't also make every player's browser open a websocket to Runware
+    // just to validate it.
+    onChange: (value) => {
+      if (!game.user?.isGM) return;
+      validateApiKey(value);
+    }
   });
 
   game.settings.register(MODULE_ID, 'defaultModel', {
@@ -403,6 +414,28 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
   }
 }
 
+/**
+ * Verify a Runware API key and notify the caller's client of the result.
+ * Called from the `apiKey` setting's `onChange`, which guards on
+ * `game.user.isGM` before calling this.
+ *
+ * Uses checkRunwareApiKey() rather than the SDK's own `Runware.initialize()`
+ * - see runware-connection.js for why that path can take up to a minute to
+ * report an invalid key instead of failing fast.
+ * @param {string} apiKey
+ */
+async function validateApiKey(apiKey) {
+  if (!apiKey) return;
+
+  try {
+    await checkRunwareApiKey(apiKey);
+    ui.notifications.info(`${MODULE_NAME}: Runware API key verified successfully.`);
+  } catch (error) {
+    console.error(`${MODULE_NAME} | Runware API key validation failed:`, error);
+    ui.notifications.error(`${MODULE_NAME}: Runware API key could not be verified - ${getRunwareErrorMessage(error)}`);
+  }
+}
+
 let backgroundRemovalClient = null;
 let backgroundRemovalClientApiKey = null;
 
@@ -418,6 +451,10 @@ async function getBackgroundRemovalClient() {
     // @1 is behaviourally identical today while preventing a future 2.x release
     // from being pulled in silently.
     const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
+    // Check the key ourselves first: Runware.initialize()'s own failure
+    // detection can take up to a minute to report an invalid key instead of
+    // failing fast - see runware-connection.js for why.
+    await checkRunwareApiKey(apiKey);
     backgroundRemovalClient = await Runware.initialize({ apiKey });
     backgroundRemovalClientApiKey = apiKey;
   }
@@ -455,7 +492,7 @@ async function removeBackgroundFromImage(imageData) {
     return Array.isArray(response) ? response[0] : response;
   } catch (error) {
     console.error(`${MODULE_NAME} | Background removal failed:`, error);
-    ui.notifications.error(`${MODULE_NAME}: Background removal failed - ${error.message}`);
+    ui.notifications.error(`${MODULE_NAME}: Background removal failed - ${getRunwareErrorMessage(error)}`);
     return null;
   }
 }

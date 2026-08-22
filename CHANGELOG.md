@@ -7,8 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.9.0]
 
+### Added
+
+- **API key validation**: saving the Runware API key now verifies it immediately and notifies the
+  GM whether it's valid, instead of only being discovered on the next generation attempt.
+
 ### Fixed
 
+- **Unhelpful errors on generation failure**: the Runware SDK doesn't always reject with a real
+  `Error` (an invalid API key rejects with the server's raw `{ errors: [...] }` payload), so
+  failures previously surfaced as "Image generation failed - undefined". Errors are now normalised
+  into a readable message, and an invalid API key gets a specific, actionable notification. The
+  same normalisation applies to background-removal failures.
+- **Invalid API key took up to a minute to report**: `@runware/sdk-js@1.3.2`'s own connection-failure
+  detection fails to match the server's auth-error payload (its `taskUUID` is the literal string
+  `"N/A"`, which never matches the pending `"authentication"` listener), so it fell through to a
+  hardcoded ~60s connection timeout instead of failing fast. Key validation, image generation, and
+  background removal now run a lightweight standalone check first and report an invalid key within
+  seconds.
 - **Release packaging**: `module.zip` previously placed `module.json` and `scripts/` under a
   `build/` directory while `styles/`, `templates/`, and `lang/` sat beside it, so no single
   directory in the archive was a complete module. Foundry treats the directory holding
