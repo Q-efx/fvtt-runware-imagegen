@@ -164,11 +164,18 @@ runware-image-generator/
 │   └── preset-config.hbs  # Preset manager template
 ├── lang/
 │   └── en.json           # Unused; every string is hardcoded in JS/HBS
-└── images/runware/       # Generated images (auto-created, in the Foundry data root)
-    └── [actor-name]/
-        ├── image_N.png
-        └── tokens/
-            └── token_N.png
+```
+
+Generated images are auto-created separately in the Foundry data root:
+
+```
+Data/
+└── images/
+    └── runware/
+        └── [actor-name]/
+            ├── image_N.png
+            └── tokens/
+                └── token_N.png
 ```
 
 ## Security Considerations

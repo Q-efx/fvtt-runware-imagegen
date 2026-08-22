@@ -155,8 +155,9 @@ runware-image-generator/
 │   └── module.css         # Styles
 ├── lang/
 │   └── en.json           # i18n
-└── images/               # Generated images
 ```
+
+Generated images are stored separately in `Data/images/runware/[actor-name]/`, not in the module directory.
 
 ⭐ = Most important files to understand
 

@@ -8,7 +8,7 @@ import { MODULE_NAME } from './constants.js';
 
 export class ImageFileHandler {
   /**
-   * Save a generated image to the module directory
+   * Save a generated image to the Foundry data directory
    * @param {Actor} actor - The actor for which the image was generated
    * @param {Object} imageData - The image data from Runware
    * @returns {Promise<string>} The path to the saved image
@@ -27,7 +27,7 @@ export class ImageFileHandler {
       // Create a clean actor name for the directory
       const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
-      // Create directory path: modules/runware-image-generator/images/actor-name/[*]
+      // Create directory path: images/runware/actor-name/[*] at the Foundry data root
       const baseDirPath = `images/runware/${actorNameClean}`;
       const dirPath = type === 'token' ? `${baseDirPath}/tokens` : baseDirPath;
 

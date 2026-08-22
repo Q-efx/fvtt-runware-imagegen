@@ -13,7 +13,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
   - LoRA model support for style adaptation
   - CFG Scale, inference steps, and seed control
   - Generate multiple images at once (1-4) with an in-app gallery to pick your favorite result
-- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `modules/runware-imagegen/images/actor-name/` (tokens live in the `/tokens` subfolder)
+- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/actor-name/` in the Foundry data directory (tokens live in the `/tokens` subfolder)
 - 🖼️ **Quick Application**: Instantly apply the chosen render as the actor portrait, with multi-image preview selection when multiple results are generated
 - 🪄 **Token Ready**: Backgrounds are removed automatically via Runware RMBG v2.0 and saved as autorenamed token images alongside the portrait
 - 🔐 **Secure**: API keys stored securely in world settings
@@ -62,7 +62,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 5. **Click "Generate Image"**
 6. **Wait for Generation**: The module will display a loading indicator
 7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite; the selected image is then shown in a confirmation dialog
-8. **Confirm or Save**: The chosen portrait is stored in `modules/runware-image-generator/images/[actor-name]/` and a matching background-free token is generated automatically in `modules/runware-image-generator/images/[actor-name]/tokens/`
+8. **Confirm or Save**: The chosen portrait is stored in `images/runware/[actor-name]/` in the Foundry data directory, and a matching background-free token is generated automatically in `images/runware/[actor-name]/tokens/`.
 
 ### Advanced Options
 
@@ -105,25 +105,25 @@ Generated images are saved in an organized directory structure:
 
 ```
 Data/
-  modules/
-    runware-image-generator/
-      images/
-        warrior_character/
-          image_1.png
-          image_2.png
-          image_3.png
-          tokens/
-            token_1.png
-        npc_shopkeeper/
-          image_1.png
-          image_2.png
-          tokens/
-            token_1.png
+  images/
+    runware/
+      warrior_character/
+        image_1.png
+        image_2.png
+        image_3.png
+        tokens/
+          token_1.png
+      npc_shopkeeper/
+        image_1.png
+        image_2.png
+        tokens/
+          token_1.png
 ```
 
 - Actor names are sanitized (special characters replaced with underscores)
 - Images are numbered sequentially
 - Images persist across sessions
+- Images are kept outside the module directory, so updating or uninstalling the module does not remove them
 - You can access these files directly via the FilePicker
 - Background-removed token images are stored alongside portraits under the `tokens/` subdirectory
 

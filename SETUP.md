@@ -57,8 +57,9 @@ runware-image-generator/
 │   └── preset-config.hbs # Preset manager template
 ├── lang/
 │   └── en.json         # Unused; all strings are hardcoded
-└── images/runware/     # Generated images (in the Foundry data root)
 ```
+
+Generated images are created separately at `Data/images/runware/[actor-name]/`; they are not part of the module directory.
 
 ## Getting a Runware API Key
 
@@ -251,8 +252,8 @@ To remove the module:
 2. **Delete** the module directory:
    - Remove `Data/modules/runware-image-generator/`
 3. **Clean up images** (optional):
-   - Generated images remain in the module directory
-   - Delete the entire folder if you want to remove all generated images
+   - Generated images remain in `Data/images/runware/`
+   - Delete `Data/images/runware/` if you want to remove all generated images
 
 ## Support
 
