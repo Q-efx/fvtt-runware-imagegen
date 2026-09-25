@@ -53,15 +53,17 @@ jobs:
             echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
+      # Warn only. Failing here left a published release with no assets; GitHub
+      # still marks it "Latest", so the `releases/latest/download/module.json`
+      # manifest URL returned 404 for every install. module.json's version is
+      # set from the tag below anyway.
       - name: Check versions match the tag
         env:
           VERSION: ${{ steps.get-version.outputs.version-without-v }}
         run: |
-          fail=0
-          [ "$(jq -r .version package.json)" = "$VERSION" ] || { echo "::error::package.json version != $VERSION"; fail=1; }
-          [ "$(jq -r .version module.json)" = "$VERSION" ] || { echo "::error::module.json version != $VERSION"; fail=1; }
-          grep -q "^## \[v$VERSION\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [v$VERSION] heading"; fail=1; }
-          exit $fail
+          [ "$(jq -r .version package.json)" = "$VERSION" ] || echo "::warning::package.json version is not $VERSION"
+          [ "$(jq -r .version module.json)" = "$VERSION" ] || echo "::warning::module.json version is not $VERSION (overwritten from the tag)"
+          grep -q "^## \[v$VERSION\]" CHANGELOG.md || echo "::warning::CHANGELOG.md has no [v$VERSION] heading; using generic release notes"
 
       # Substitute the Manifest and Download URLs in the `module.json`.
       - name: Substitute Manifest and Download Links For Versioned Ones

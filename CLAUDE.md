@@ -129,8 +129,11 @@ the browser never validates. Any new numeric request parameter must be clamped i
 
 ## Gotchas
 
-- **Versions must stay in sync.** Since v1.0.0 the release workflow fails unless `module.json`,
-  `package.json`, and a `## [vX.Y.Z]` CHANGELOG heading all match the tag. `module.json` is the
+- **Versions must stay in sync.** The release workflow *warns* (it does not fail) when
+  `module.json`, `package.json`, or a `## [vX.Y.Z]` CHANGELOG heading don't match the tag. It must
+  never fail before assets are attached: a published release without `module.json` still becomes
+  "Latest", and the `releases/latest/download/module.json` manifest URL then 404s for every
+  install (this happened with v1.0.1). `module.json` is the
   one Foundry reads; the release workflow overwrites its `manifest`/`download` fields from the git
   tag. Update `module.json`, `package.json`, `CHANGELOG.md`, and the changelog section in
   `README.md` together when releasing; `package.json`'s version is inert for Foundry but keep it
@@ -150,7 +153,7 @@ the browser never validates. Any new numeric request parameter must be clamped i
 ## Releasing
 
 Publishing a GitHub release with tag `vX.Y.Z` triggers `.github/workflows/release.yml`, which
-checks that the versions match the tag, substitutes the versioned manifest/download URLs into `module.json`, runs `node build.mjs` (no `npm ci` - see the workflow comments),
+warns if the versions don't match the tag, substitutes the versioned manifest/download URLs into `module.json`, runs `node build.mjs` (no `npm ci` - see the workflow comments),
 zips the **contents of `build/`** as `module.zip` (so `module.json` sits at the archive root —
 zipping `build/` itself put the manifest one level down and dropped `styles/`, `templates/`, and
 `lang/`, which was the v0.9.0 packaging fix), attaches both to the release, and (for

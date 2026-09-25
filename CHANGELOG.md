@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.1]
+
+### Fixed
+
+- **Release workflow**: a tag whose files didn't match its version (e.g. a release created from
+  the GitHub UI without bumping `module.json`) failed the new version check. That left a published
+  release with no `module.json`/`module.zip`, which GitHub still marked "Latest", so the
+  `releases/latest/download/module.json` manifest URL returned 404 for every install and update.
+  A version mismatch is now a warning; `module.json`'s version is still taken from the tag.
+
 ## [v1.0.0]
 
 ### Fixed

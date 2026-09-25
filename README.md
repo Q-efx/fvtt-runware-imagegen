@@ -224,6 +224,9 @@ For issues, feature requests, or questions:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
 
+### Version 1.0.1
+- Fixed the release workflow: a release whose files didn't match its tag was published without `module.json`/`module.zip`, breaking installs and updates
+
 ### Version 1.0.0
 - Fixed embeddings: standard model ids like `civitai:12345@67890` were sent as just `civitai`
 - Image count, size, steps, CFG and seed are now validated and clamped before every paid request
