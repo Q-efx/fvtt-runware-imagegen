@@ -78,7 +78,7 @@ sheet button → openImageGenerationDialog() [module.js]
 - token: `images/runware/<slug>_<actorId>/tokens/token_N.png`
 
 `ImageFileHandler.getActorFolderName()` builds the folder name: a transliterated slug plus the actor
-id, so actors with the same name no longer share a folder (before v0.9.1 it was the bare slug).
+id, so actors with the same name no longer share a folder (before v1.0.0 it was the bare slug).
 `N` is `max + 1` over the listing that `_ensureDirectory()` returns, so each save browses once.
 
 `_ensureDirectory()` deliberately does **not** swallow a failed final browse: treating it as an
@@ -129,7 +129,7 @@ the browser never validates. Any new numeric request parameter must be clamped i
 
 ## Gotchas
 
-- **Versions must stay in sync.** Since v0.9.1 the release workflow fails unless `module.json`,
+- **Versions must stay in sync.** Since v1.0.0 the release workflow fails unless `module.json`,
   `package.json`, and a `## [vX.Y.Z]` CHANGELOG heading all match the tag. `module.json` is the
   one Foundry reads; the release workflow overwrites its `manifest`/`download` fields from the git
   tag. Update `module.json`, `package.json`, `CHANGELOG.md`, and the changelog section in
