@@ -47,7 +47,7 @@ User chooses portrait / token / both / neither → Actor updated
 
 ### Key APIs Used
 - FoundryVTT: `ApplicationV2`, `DialogV2`, `FilePicker`, `Hooks`, `Settings`
-- Runware: Loaded from `https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm`
+- Runware: Loaded from `https://cdn.jsdelivr.net/npm/@runware/sdk-js@1.3.2/+esm (pinned in `scripts/runware-client.js`)`
   (pinned to major v1; `@latest` risked an upstream release breaking the module)
 - Web: `FormData`, `Blob`, `File`, ES6 modules
 
@@ -136,7 +136,7 @@ battle axe, determined expression, D&D character portrait"
 ## File Structure at a Glance
 
 ```
-runware-image-generator/
+runware-imagegen/
 ├── 📄 module.json          # Manifest
 ├── 📘 README.md           # User docs
 ├── 🔧 TECHNICAL.md        # Dev docs
@@ -157,7 +157,7 @@ runware-image-generator/
 │   └── en.json           # i18n
 ```
 
-Generated images are stored separately in `Data/images/runware/[actor-name]/`, not in the module directory.
+Generated images are stored separately in `Data/images/runware/[actor-name]_[actor-id]/`, not in the module directory.
 
 ⭐ = Most important files to understand
 

@@ -12,10 +12,9 @@
  * fallback to `taskType: "authentication"`, and the comparison never matches.
  * The flag never flips, so `ensureConnection()` falls through to its
  * hardcoded ~60s connection timeout (2000ms * 30 retries) instead of failing
- * fast. That's an SDK bug in v1.3.2 we can't patch from here, and both
- * `getBackgroundRemovalClient()` and `RunwareImageDialog._generateImage()`
- * go through `Runware.initialize()`, so it affects every SDK entry point,
- * not just key validation.
+ * fast. That's an SDK bug in v1.3.2 we can't patch from here, and
+ * getRunwareClient() (runware-client.js) goes through `Runware.initialize()`,
+ * so it affects generation and background removal, not just key validation.
  *
  * This sends the same one-shot `{ apiKey, taskType: 'authentication' }`
  * message over a plain `WebSocket` and inspects the raw response directly,

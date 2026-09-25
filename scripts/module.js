@@ -5,18 +5,21 @@
  * allowing users to generate character and NPC portraits using AI.
  */
 
-import { RunwareImageDialog } from './dialog.js';
+import { RunwareImageDialog, getImageDialogId } from './dialog.js';
 import { ImageFileHandler } from './file-handler.js';
 import { RunwarePresetConfig } from './preset-config.js';
-import { MODULE_ID, MODULE_NAME } from './constants.js';
+import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 import { getRunwareErrorMessage } from './runware-errors.js';
 import { checkRunwareApiKey } from './runware-connection.js';
+import { getRunwareClient } from './runware-client.js';
+
+const BACKGROUND_REMOVAL_MODEL = 'runware:110@1';
 
 /**
  * Initialize the module
  */
 Hooks.once('init', async function() {
-  console.log(`${MODULE_NAME} | Initializing module`);
+  console.debug(`${MODULE_NAME} | Initializing module`);
 
   // Register module settings
   game.settings.register(MODULE_ID, 'apiKey', {
@@ -48,20 +51,30 @@ Hooks.once('init', async function() {
 
   game.settings.register(MODULE_ID, 'imageWidth', {
     name: 'Image Width',
-    hint: 'Default width for generated images',
+    hint: 'Default width for generated images (multiple of 64)',
     scope: 'world',
     config: true,
     type: Number,
-    default: 512,
+    default: LIMITS.dimension.fallback,
+    range: {
+      min: LIMITS.dimension.min,
+      max: LIMITS.dimension.max,
+      step: LIMITS.dimension.step
+    }
   });
 
   game.settings.register(MODULE_ID, 'imageHeight', {
     name: 'Image Height',
-    hint: 'Default height for generated images',
+    hint: 'Default height for generated images (multiple of 64)',
     scope: 'world',
     config: true,
     type: Number,
-    default: 512,
+    default: LIMITS.dimension.fallback,
+    range: {
+      min: LIMITS.dimension.min,
+      max: LIMITS.dimension.max,
+      step: LIMITS.dimension.step
+    }
   });
 
   game.settings.register(MODULE_ID, 'numberResults', {
@@ -97,14 +110,14 @@ Hooks.once('init', async function() {
     restricted: true
   });
 
-  console.log(`${MODULE_NAME} | Module initialized`);
+  console.debug(`${MODULE_NAME} | Module initialized`);
 });
 
 /**
  * Ready hook - module is ready to use
  */
 Hooks.once('ready', async function() {
-  console.log(`${MODULE_NAME} | Module ready`);
+  console.debug(`${MODULE_NAME} | Module ready`);
 
   // Verify API key is set
   const apiKey = game.settings.get(MODULE_ID, 'apiKey');
@@ -165,21 +178,22 @@ function canUserModifyActor(actor) {
 }
 
 /**
- * Check whether the current user is allowed to upload files, which is required
- * by ImageFileHandler.saveImage(). The button itself stays visible to anyone who
- * owns the actor (mirroring the existing apiKey check, which also isn't gated on
- * button visibility) - this is enforced when the dialog is opened instead, see
- * openImageGenerationDialog().
+ * Check whether the current user may upload *and* browse files. saveImage()
+ * needs both: FILES_UPLOAD for the upload itself, FILES_BROWSE to create the
+ * folder and find the next free image number. The button itself stays visible
+ * to anyone who owns the actor (mirroring the existing apiKey check, which also
+ * isn't gated on button visibility) - this is enforced when the dialog is
+ * opened instead, see openImageGenerationDialog().
  * @returns {boolean}
  */
-function hasFileUploadPermission() {
+function hasFilePermissions() {
   if (!game?.user) return false;
   try {
     if (typeof game.user.hasPermission === 'function') {
-      return game.user.hasPermission('FILES_UPLOAD');
+      return game.user.hasPermission('FILES_UPLOAD') && game.user.hasPermission('FILES_BROWSE');
     }
   } catch (err) {
-    console.warn(`${MODULE_NAME} | Failed to evaluate upload permission:`, err);
+    console.warn(`${MODULE_NAME} | Failed to evaluate file permissions:`, err);
     return false;
   }
 
@@ -211,26 +225,50 @@ async function openImageGenerationDialog(actorSheet) {
     return;
   }
 
-  // Generation costs money and saving the result requires Foundry's FILES_UPLOAD
-  // permission. Check up front so a player who owns the actor but lacks upload
-  // rights doesn't pay for a Runware request that can never be saved.
-  if (!hasFileUploadPermission()) {
-    ui.notifications.error(`${MODULE_NAME}: You do not have permission to upload files. Ask your GM to grant the "Upload New Files" permission.`);
+  // Generation costs money and saving the result requires Foundry's file
+  // permissions. Check up front so a player who owns the actor but lacks them
+  // doesn't pay for a Runware request that can never be saved.
+  if (!hasFilePermissions()) {
+    ui.notifications.error(`${MODULE_NAME}: You do not have permission to save files. Ask your GM to grant the "Upload New Files" and "Use File Browser" permissions.`);
     return;
   }
 
   const actor = actorSheet.document;
 
-  // Create and render the dialog
+  // A locked compendium actor can't be updated - fail before the paid request,
+  // not after the image has already been generated and uploaded.
+  if (actor?.pack && actor.compendium?.locked) {
+    ui.notifications.error(`${MODULE_NAME}: This actor is in a locked compendium. Unlock it first.`);
+    return;
+  }
+
+  // One dialog per actor: bring an open one to the front instead of replacing it.
+  const existing = foundry.applications.instances?.get(getImageDialogId(actor));
+  if (existing) {
+    existing.bringToFront?.();
+    return;
+  }
+
   const dialog = new RunwareImageDialog({
     actor: actor,
-    apiKey: apiKey,
-    onImageGenerated: async (imageData, options) => {
-      await handleGeneratedImage(actor, imageData, options);
-    }
+    onImageGenerated: (imageData, options) => handleGeneratedImage(actor, imageData, options)
   });
 
-  dialog.render(true);
+  dialog.render({ force: true });
+}
+
+/**
+ * Turn Runware image data into something an <img> can display.
+ * @param {Object} image
+ * @returns {string}
+ */
+function getImageSrc(image) {
+  if (image?.imageBase64Data) {
+    return image.imageBase64Data.startsWith('data:')
+      ? image.imageBase64Data
+      : `data:image/png;base64,${image.imageBase64Data}`;
+  }
+  return image?.imageURL ?? '';
 }
 
 /**
@@ -250,168 +288,173 @@ function getDialogV2() {
 }
 
 /**
- * Handle the generated image(s) - save it and optionally update actor
+ * Handle the generated image(s): pick one, optionally remove its background,
+ * ask what to use it for, then save and update the actor.
  * @param {Actor} actor - The actor document
  * @param {Array<Object>} imagesData - The generated image data from Runware
  * @param {Object} options - Additional options
+ * @returns {Promise<boolean>} `true` once the flow finished (including the user
+ *   deliberately declining to use the image), `false` if it was abandoned or
+ *   failed - the dialog stays open in that case so the prompt isn't lost.
  */
 async function handleGeneratedImage(actor, imagesData, options = {}) {
   try {
     if (!imagesData || imagesData.length === 0) {
       ui.notifications.warn(`${MODULE_NAME}: No images were generated.`);
-      return;
+      return false;
     }
 
-    let selectedImageData;
-
-    if (imagesData.length === 1) {
-      selectedImageData = imagesData[0];
-    } else {
-      // Show a dialog for the user to pick an image
-      selectedImageData = await showImageSelectionDialog(imagesData);
-    }
+    let selectedImageData = imagesData.length === 1
+      ? imagesData[0]
+      : await showImageSelectionDialog(imagesData);
 
     if (!selectedImageData) {
       ui.notifications.info(`${MODULE_NAME}: No image selected.`);
-      return;
+      return false;
     }
 
-    // Handle background removal if requested
+    // Background removal for the portrait, if requested up front.
+    let backgroundRemoved = false;
     if (options.removeBackground) {
       ui.notifications.info(`${MODULE_NAME}: Removing background from selected image...`);
       const bgRemovedData = await removeBackgroundFromImage(selectedImageData);
       if (bgRemovedData) {
-        // Merge the new image data into the original image object to preserve other properties if needed
-        selectedImageData = {
-          ...selectedImageData,
-          ...bgRemovedData
-        };
+        selectedImageData = { ...selectedImageData, ...bgRemovedData };
+        backgroundRemoved = true;
       } else {
         ui.notifications.warn(`${MODULE_NAME}: Failed to remove background, using original image.`);
       }
     }
 
-    ui.notifications.info(`${MODULE_NAME}: Saving selected image...`);
+    // Ask first, save afterwards: saving before the prompt left an unused file
+    // on disk every time the user answered "No" or "Token Only". The preview
+    // is built from the in-memory image via DOM APIs, never from an HTML string.
+    const consentContent = document.createElement('div');
+    const consentText = document.createElement('p');
+    consentText.textContent = "Would you like to use this image for the actor's portrait and/or token?";
+    consentContent.appendChild(consentText);
+    const consentImage = document.createElement('img');
+    consentImage.src = getImageSrc(selectedImageData);
+    consentImage.style.maxWidth = '100%';
+    consentImage.style.border = '1px solid #000';
+    consentContent.appendChild(consentImage);
 
-    // Save the image using the file handler
-    const savedPath = await ImageFileHandler.saveImage(actor, selectedImageData);
+    // Portrait and token are asked about together because the token may
+    // trigger a paid background-removal call - it must not happen without
+    // consent. rejectClose: false + normalising null keeps dismissal (X /
+    // Escape) equivalent to declining both instead of rejecting the promise.
+    const consentResult = await getDialogV2().wait({
+      window: { title: 'Set as Actor Image?' },
+      // The Runware response has no width field, so use a fixed preview width.
+      position: { width: 640, height: 'auto' },
+      content: consentContent,
+      rejectClose: false,
+      buttons: [
+        {
+          action: 'both',
+          icon: 'fas fa-check',
+          label: 'Portrait + Token',
+          default: true,
+          callback: () => ({ portrait: true, token: true }),
+        },
+        {
+          action: 'portraitOnly',
+          label: 'Portrait Only',
+          callback: () => ({ portrait: true, token: false }),
+        },
+        {
+          action: 'tokenOnly',
+          label: 'Token Only',
+          callback: () => ({ portrait: false, token: true }),
+        },
+        {
+          action: 'no',
+          icon: 'fas fa-times',
+          label: 'No',
+          callback: () => ({ portrait: false, token: false }),
+        },
+      ],
+    });
+    const choice = consentResult ?? { portrait: false, token: false };
+    if (!choice.portrait && !choice.token) return true;
 
-    if (savedPath) {
-      ui.notifications.info(`${MODULE_NAME}: Image saved successfully at ${savedPath}`);
-
-      // Fixed preview width: the Runware SDK response never includes a `width`
-      // field (its shape is imageUUID/imageURL/imageBase64Data/NSFWContent/cost/seed),
-      // so the previous size calculation always fell back to this value anyway.
-      const previewWidth = 640;
-
-      // Build the preview via DOM APIs (property assignment) instead of an HTML
-      // string, so `savedPath` is never interpolated into markup.
-      const consentContent = document.createElement('div');
-      const consentText = document.createElement('p');
-      consentText.textContent = "Would you like to use this image for the actor's portrait and/or token?";
-      consentContent.appendChild(consentText);
-      const consentImage = document.createElement('img');
-      consentImage.src = savedPath;
-      consentImage.style.maxWidth = '100%';
-      consentImage.style.border = '1px solid #000';
-      consentContent.appendChild(consentImage);
-
-      // Ask the user what to do with the generated image. Portrait and token are
-      // asked about together (in one dialog) because setting the prototype token
-      // may trigger a paid background-removal API call - it must not happen
-      // without consent, same as the portrait must not be overwritten without it.
-      // rejectClose: false + normalizing a null result below keeps dismissal
-      // (X / Escape) equivalent to declining both, exactly like the old `close:`
-      // handler on the legacy Dialog - without it DialogV2 would instead reject
-      // the promise and this would surface as "Failed to save image - undefined".
-      const consentResult = await getDialogV2().wait({
-        window: { title: 'Set as Actor Image?' },
-        position: { width: previewWidth, height: 'auto' },
-        content: consentContent,
-        rejectClose: false,
-        buttons: [
-          {
-            action: 'both',
-            icon: 'fas fa-check',
-            label: 'Portrait + Token',
-            // Keep the previous default-to-yes convenience: pressing Enter or
-            // simply not customizing anything still applies to both, in one click.
-            default: true,
-            callback: () => ({ portrait: true, token: true }),
-          },
-          {
-            action: 'portraitOnly',
-            label: 'Portrait Only',
-            callback: () => ({ portrait: true, token: false }),
-          },
-          {
-            action: 'tokenOnly',
-            label: 'Token Only',
-            callback: () => ({ portrait: false, token: true }),
-          },
-          {
-            action: 'no',
-            icon: 'fas fa-times',
-            label: 'No',
-            callback: () => ({ portrait: false, token: false }),
-          },
-        ],
-      });
-      const choice = consentResult ?? { portrait: false, token: false };
-
-      const actorUpdates = {};
-      if (choice.portrait) {
-        actorUpdates.img = savedPath;
-      }
-
-      let tokenImagePath = null;
-
-      if (choice.token) {
-        if (options.removeBackground) {
-          // Background was already removed for the portrait; reuse the same
-          // image data for the token instead of paying for removal again.
-          try {
-            tokenImagePath = await ImageFileHandler.saveImage(actor, selectedImageData, { type: 'token' });
-            if (tokenImagePath) {
-              actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
-            }
-          } catch (tokenError) {
-             console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
-          }
-        } else {
-          // Remove background and save as token image (original behavior)
-          let tokenImageData = await removeBackgroundFromImage(selectedImageData);
-          if (!tokenImageData) {
-            console.warn(`${MODULE_NAME} | Falling back to original image for token.`);
-            tokenImageData = selectedImageData;
-          }
-
-          try {
-            tokenImagePath = await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
-            if (tokenImagePath) {
-              actorUpdates['prototypeToken.texture.src'] = tokenImagePath;
-            }
-          } catch (tokenError) {
-            console.error(`${MODULE_NAME} | Failed to save token image:`, tokenError);
-            ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${tokenError.message}`);
-          }
-        }
-      }
-
-      if (Object.keys(actorUpdates).length > 0) {
-        await actor.update(actorUpdates);
-        if (actorUpdates.img) {
-          ui.notifications.info(`${MODULE_NAME}: Actor image updated`);
-        }
-        if (actorUpdates['prototypeToken.texture.src']) {
-          ui.notifications.info(`${MODULE_NAME}: Token image updated`);
-        }
-      }
+    let portraitPath = null;
+    if (choice.portrait) {
+      ui.notifications.info(`${MODULE_NAME}: Saving selected image...`);
+      portraitPath = await ImageFileHandler.saveImage(actor, selectedImageData);
     }
+
+    let tokenPath = null;
+    if (choice.token) {
+      tokenPath = await saveTokenImage(actor, selectedImageData, {
+        backgroundRemoved,
+        // Don't pay for a second removal attempt if the first one just failed.
+        attemptRemoval: !options.removeBackground,
+        portraitPath
+      });
+    }
+
+    await applyActorImages(actor, { portraitPath, tokenPath });
+
+    // A requested token that couldn't be saved (already reported) is an
+    // unfinished flow: keep the dialog open rather than discard the image.
+    return !(choice.token && !tokenPath);
   } catch (error) {
     console.error(`${MODULE_NAME} | Error handling generated image:`, error);
-    ui.notifications.error(`${MODULE_NAME}: Failed to save image - ${error.message}`);
+    ui.notifications.error(`${MODULE_NAME}: Could not apply the generated image - ${getRunwareErrorMessage(error)}`);
+    return false;
   }
+}
+
+/**
+ * Produce the token image (background removed) and save it.
+ * @returns {Promise<string|null>} The token path, or null if saving failed.
+ */
+async function saveTokenImage(actor, imageData, { backgroundRemoved, attemptRemoval, portraitPath }) {
+  try {
+    // Already background-free and already on disk as the portrait: reuse that
+    // file instead of paying for removal again or uploading a duplicate.
+    if (backgroundRemoved && portraitPath) return portraitPath;
+
+    let tokenImageData = imageData;
+    if (!backgroundRemoved && attemptRemoval) {
+      const bgRemovedData = await removeBackgroundFromImage(imageData);
+      if (bgRemovedData) {
+        tokenImageData = { ...imageData, ...bgRemovedData };
+      } else {
+        ui.notifications.warn(`${MODULE_NAME}: Falling back to the original image for the token.`);
+      }
+    }
+
+    return await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
+  } catch (error) {
+    console.error(`${MODULE_NAME} | Failed to save token image:`, error);
+    ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${getRunwareErrorMessage(error)}`);
+    return null;
+  }
+}
+
+/**
+ * Point the actor's portrait and token at the saved files.
+ * For an unlinked (synthetic) token actor the placed token's own texture is
+ * updated: its prototype token is meaningless and changing it has no effect.
+ */
+async function applyActorImages(actor, { portraitPath, tokenPath }) {
+  const syntheticToken = actor.isToken ? actor.token : null;
+
+  const actorUpdates = {};
+  if (portraitPath) actorUpdates.img = portraitPath;
+  if (tokenPath && !syntheticToken) actorUpdates['prototypeToken.texture.src'] = tokenPath;
+
+  if (Object.keys(actorUpdates).length > 0) {
+    await actor.update(actorUpdates);
+  }
+  if (tokenPath && syntheticToken) {
+    await syntheticToken.update({ 'texture.src': tokenPath });
+  }
+
+  if (portraitPath) ui.notifications.info(`${MODULE_NAME}: Actor image updated`);
+  if (tokenPath) ui.notifications.info(`${MODULE_NAME}: Token image updated`);
 }
 
 /**
@@ -436,43 +479,13 @@ async function validateApiKey(apiKey) {
   }
 }
 
-let backgroundRemovalClient = null;
-let backgroundRemovalClientApiKey = null;
-
-async function getBackgroundRemovalClient() {
-  const apiKey = game.settings.get(MODULE_ID, 'apiKey');
-
-  if (!apiKey) {
-    throw new Error('Runware API key is not configured.');
-  }
-
-  if (!backgroundRemovalClient || backgroundRemovalClientApiKey !== apiKey) {
-    // Major-locked instead of @latest: @latest currently resolves to 1.3.2, so
-    // @1 is behaviourally identical today while preventing a future 2.x release
-    // from being pulled in silently.
-    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
-    // Check the key ourselves first: Runware.initialize()'s own failure
-    // detection can take up to a minute to report an invalid key instead of
-    // failing fast - see runware-connection.js for why.
-    await checkRunwareApiKey(apiKey);
-    backgroundRemovalClient = await Runware.initialize({ apiKey });
-    backgroundRemovalClientApiKey = apiKey;
-  }
-
-  return backgroundRemovalClient;
-}
-
 async function removeBackgroundFromImage(imageData) {
   try {
-    const runware = await getBackgroundRemovalClient();
+    const runware = await getRunwareClient(game.settings.get(MODULE_ID, 'apiKey'));
 
     const inputImage = imageData?.imageUUID
       ?? imageData?.imageDataURI
-      ?? (imageData?.imageBase64Data
-        ? (imageData.imageBase64Data.startsWith('data:')
-          ? imageData.imageBase64Data
-          : `data:image/png;base64,${imageData.imageBase64Data}`)
-        : imageData?.imageURL);
+      ?? (getImageSrc(imageData) || undefined);
 
     if (!inputImage) {
       throw new Error('No image data available for background removal.');
@@ -480,16 +493,19 @@ async function removeBackgroundFromImage(imageData) {
 
     const response = await runware.removeImageBackground({
       inputImage,
-      model: 'runware:110@1',
+      model: BACKGROUND_REMOVAL_MODEL,
       outputType: 'base64Data',
       outputFormat: 'PNG',
     });
 
-    if (!response) {
-      throw new Error('Background removal did not return a result.');
+    const result = Array.isArray(response) ? response[0] : response;
+    // Without new base64 data, merging the result into the original would
+    // silently save the un-removed image as if removal had worked.
+    if (!result?.imageBase64Data) {
+      throw new Error('Background removal did not return an image.');
     }
 
-    return Array.isArray(response) ? response[0] : response;
+    return result;
   } catch (error) {
     console.error(`${MODULE_NAME} | Background removal failed:`, error);
     ui.notifications.error(`${MODULE_NAME}: Background removal failed - ${getRunwareErrorMessage(error)}`);
@@ -503,15 +519,6 @@ async function removeBackgroundFromImage(imageData) {
  * @returns {Promise<Object|null>} The selected image data, or null if none selected.
  */
 async function showImageSelectionDialog(imagesData) {
-  const getPreviewSrc = (image) => {
-    if (image?.imageBase64Data) {
-      return image.imageBase64Data.startsWith('data:')
-        ? image.imageBase64Data
-        : `data:image/png;base64,${image.imageBase64Data}`;
-    }
-    if (image?.imageURL) return image.imageURL;
-    return '';
-  };
 
   // Build the picker via DOM APIs (property assignment) instead of an HTML
   // string, so each thumbnail's `previewSrc` (a data: URI or an SDK-provided
@@ -530,7 +537,7 @@ async function showImageSelectionDialog(imagesData) {
   grid.style.justifyContent = 'center';
 
   imagesData.forEach((img, index) => {
-    const previewSrc = getPreviewSrc(img);
+    const previewSrc = getImageSrc(img);
     const isDisabled = !previewSrc;
 
     const card = document.createElement('div');
@@ -636,6 +643,3 @@ async function showImageSelectionDialog(imagesData) {
 
   return result ?? null;
 }
-
-// Export module constants for use in other module files
-export { MODULE_ID, MODULE_NAME };

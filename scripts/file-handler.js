@@ -24,19 +24,16 @@ export class ImageFileHandler {
         throw new Error('No base64 image data provided');
       }
 
-      // Create a clean actor name for the directory
-      const actorNameClean = actor.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-
-      // Create directory path: images/runware/actor-name/[*] at the Foundry data root
-      const baseDirPath = `images/runware/${actorNameClean}`;
+      // Create directory path: images/runware/<actor folder>/[tokens] at the Foundry data root
+      const baseDirPath = `images/runware/${this.getActorFolderName(actor)}`;
       const dirPath = type === 'token' ? `${baseDirPath}/tokens` : baseDirPath;
 
-      // Ensure directory exists
-      await this._ensureDirectory(dirPath);
+      // Ensure the directory exists and list what's already in it
+      const existingFiles = await this._ensureDirectory(dirPath);
 
       // Get the next image number for this actor and image type
       const filenamePrefix = type === 'token' ? 'token_' : 'image_';
-      const imageNumber = await this._getNextImageNumber(dirPath, filenamePrefix);
+      const imageNumber = this._getNextImageNumber(existingFiles, filenamePrefix);
 
       // Create filename
       const filename = `${filenamePrefix}${imageNumber}.png`;
@@ -52,7 +49,7 @@ export class ImageFileHandler {
       const response = await filePicker.upload('data', dirPath, file, {}, { notify: false });
 
       if (response && response.path) {
-        console.log(`${MODULE_NAME} | Image saved to:`, response.path);
+        console.debug(`${MODULE_NAME} | Image saved to:`, response.path);
         return response.path;
       }
 
@@ -65,18 +62,40 @@ export class ImageFileHandler {
   }
 
   /**
-   * Ensure a directory exists, creating it if necessary
+   * Folder name for an actor's images: a readable slug of the name plus the
+   * actor id. The id keeps actors with colliding names ("Bob!" / "Bob?", every
+   * "Goblin", or non-Latin names that slug to nothing) from sharing a folder
+   * and overwriting each other's numbered files.
+   * @param {Actor} actor
+   * @returns {string}
+   */
+  static getActorFolderName(actor) {
+    const slug = String(actor?.name ?? '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '') // strip accents: "José" -> "jose"
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase()
+      .slice(0, 48);
+    const id = String(actor?.id ?? '').replace(/[^a-zA-Z0-9]/g, '');
+    return [slug || 'actor', id].filter(Boolean).join('_');
+  }
+
+  /**
+   * Ensure a directory exists, creating it if necessary.
    * @param {string} path - The directory path
-   * @returns {Promise<void>}
+   * @returns {Promise<string[]>} The files already in the directory (empty if it was just created).
    */
   static async _ensureDirectory(path) {
     const filePicker = this._getFilePicker();
     try {
-      // Try to browse the directory to see if it exists
-      await filePicker.browse('data', path);
+      // Browse doubles as the existence check and as the file listing that
+      // _getNextImageNumber() needs, so a save browses once instead of twice.
+      const result = await filePicker.browse('data', path);
+      return Array.isArray(result?.files) ? result.files : [];
     } catch {
       // Directory doesn't exist, create it
-      console.log(`${MODULE_NAME} | Creating directory:`, path);
+      console.debug(`${MODULE_NAME} | Creating directory:`, path);
 
       // We need to create directories one at a time
       const parts = path.split('/');
@@ -106,97 +125,56 @@ export class ImageFileHandler {
           }
         }
       }
+
+      // Confirm the directory now exists and list it. This deliberately does
+      // NOT swallow a failure: treating "couldn't browse" as "empty directory"
+      // would restart numbering at 1 and overwrite an existing image_1.png.
+      const result = await filePicker.browse('data', path);
+      return Array.isArray(result?.files) ? result.files : [];
     }
   }
 
   /**
-   * Get the next available image number for an actor
-   * @param {string} dirPath - The directory path
-   * @returns {Promise<number>} The next image number
+   * Get the next available image number from a directory listing.
+   * @param {string[]} files - Paths returned by FilePicker.browse()
+   * @param {string} filenamePrefix - `image_` or `token_`
+   * @returns {number} The highest existing number + 1
    */
-  static async _getNextImageNumber(dirPath, filenamePrefix = 'image_') {
-    const filePicker = this._getFilePicker();
-
-    // Browse the directory to get existing files. _ensureDirectory() has
-    // just run (in saveImage(), immediately before this is called) and
-    // creates dirPath if it wasn't already there, so by this point dirPath
-    // should exist. A browse() failure here is therefore *not* the normal
-    // "brand new actor, no images yet" case - that case returns a `result`
-    // with an empty/missing `files` array, handled below without throwing.
-    // A thrown error here means something else went wrong (permissions,
-    // a network blip, a backend hiccup, or _ensureDirectory silently
-    // failing to create the directory). Treating that the same as "empty
-    // directory" and returning 1 would make the caller upload as
-    // `image_1.png` / `token_1.png`, silently overwriting a previously
-    // generated image with no warning. So we deliberately do NOT catch and
-    // fall back to 1 here; we let the error propagate. saveImage() already
-    // wraps this call in a try/catch and rethrows, and module.js surfaces
-    // error.message to the user via ui.notifications.error, so this is a
-    // real (if unlikely) failure path, not a swallowed one.
-    const result = await filePicker.browse('data', dirPath);
-
-    if (!result || !result.files) {
-      return 1;
-    }
-
+  static _getNextImageNumber(files, filenamePrefix = 'image_') {
     const escapedPrefix = filenamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const filenameRegex = new RegExp(`${escapedPrefix}(\\d+)\\.png$`);
+    // Anchored to the start of the filename so e.g. "old_image_99.png" doesn't count.
+    const filenameRegex = new RegExp(`(?:^|/)${escapedPrefix}(\\d+)\\.png$`, 'i');
 
-    // Find all image files and extract numbers
-    const numbers = result.files
-      .map(file => {
-        const match = file.match(filenameRegex);
-        return match ? parseInt(match[1]) : 0;
+    const numbers = (files ?? [])
+      .map((file) => {
+        let name = file;
+        try {
+          name = decodeURIComponent(file);
+        } catch {
+          // Not URI-encoded - match the raw path.
+        }
+        const match = name.match(filenameRegex);
+        return match ? parseInt(match[1], 10) : 0;
       })
-      .filter(num => num > 0);
+      .filter((num) => num > 0);
 
-    if (numbers.length === 0) {
-      return 1;
-    }
-
-    // Return the highest number + 1
-    return Math.max(...numbers) + 1;
+    return numbers.length === 0 ? 1 : Math.max(...numbers) + 1;
   }
 
   /**
    * Convert base64 string to Blob
-   * @param {string} base64 - The base64 string
+   * @param {string} base64 - The base64 string (optionally a data: URI)
    * @param {string} contentType - The content type (e.g., 'image/png')
    * @returns {Blob} The blob
    */
   static _base64ToBlob(base64, contentType = '') {
-    // Remove data URI prefix if present
-    const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
-
-    // Decode base64
-    const byteCharacters = atob(base64Data);
-    const byteArrays = [];
-
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-      const slice = byteCharacters.slice(offset, offset + 512);
-
-      const byteNumbers = new Array(slice.length);
-      for (let i = 0; i < slice.length; i++) {
-        byteNumbers[i] = slice.charCodeAt(i);
-      }
-
-      const byteArray = new Uint8Array(byteNumbers);
-      byteArrays.push(byteArray);
+    const binary = atob(base64.replace(/^data:image\/\w+;base64,/, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
     }
-
-    return new Blob(byteArrays, { type: contentType });
+    return new Blob([bytes], { type: contentType });
   }
-
-  // Note: a getActorImages() helper used to live here, browsing
-  // `modules/${MODULE_ID}/images/<actor>` for previously generated images.
-  // That path doesn't match where saveImage() actually writes
-  // (`images/runware/<actor>` / `.../tokens`, at the Foundry data root, not
-  // under the module folder) and the function had no callers anywhere in
-  // scripts/ or templates/ - confirmed by repo-wide grep before removing it.
-  // Removed as dead code with a broken path rather than "fixed", since
-  // nothing depends on its shape (return value, sort order, or lack of a
-  // `type`/tokens argument) yet; reintroduce it pointed at the current
-  // saveImage() layout if/when something needs to list existing images.
 
   static _getFilePicker() {
     const implementation = foundry?.applications?.apps?.FilePicker?.implementation;

@@ -13,10 +13,10 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
   - LoRA model support for style adaptation
   - CFG Scale, inference steps, and seed control
   - Generate multiple images at once (1-4) with an in-app gallery to pick your favorite result
-- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/actor-name/` in the Foundry data directory (tokens live in the `/tokens` subfolder)
+- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/<actor-name>_<actor-id>/` in the Foundry data directory (tokens live in the `/tokens` subfolder)
 - 🖼️ **Quick Application**: Instantly apply the chosen render as the actor portrait, with multi-image preview selection when multiple results are generated
-- 🪄 **Token Ready**: Backgrounds are removed automatically via Runware RMBG v2.0 and saved as autorenamed token images alongside the portrait
-- 🔐 **Secure**: API keys stored securely in world settings
+- 🪄 **Token Ready**: On request, the background is removed via Runware RMBG v2.0 and the result is saved as the token image
+- 🔐 **API key in world settings**: only the GM can change it, but every connected player can read it - see [SETUP.md](SETUP.md)
 
 ## Installation
 
@@ -62,7 +62,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 5. **Click "Generate Image"**
 6. **Wait for Generation**: The module will display a loading indicator
 7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite; the selected image is then shown in a confirmation dialog
-8. **Confirm or Save**: The chosen portrait is stored in `images/runware/[actor-name]/` in the Foundry data directory, and a matching background-free token is generated automatically in `images/runware/[actor-name]/tokens/`.
+8. **Confirm or Save**: The chosen portrait is stored in `images/runware/[actor-name]_[actor-id]/` in the Foundry data directory, and, if you choose to use it for the token, a background-free copy is saved in `images/runware/[actor-name]_[actor-id]/tokens/`.
 
 ### Advanced Options
 
@@ -223,6 +223,15 @@ For issues, feature requests, or questions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Version 1.0.0
+- Fixed embeddings: standard model ids like `civitai:12345@67890` were sent as just `civitai`
+- Image count, size, steps, CFG and seed are now validated and clamped before every paid request
+- Images are saved only after you choose what to use them for, and nothing is lost if you cancel the picker - the dialog stays open with your prompt
+- Each actor gets its own dialog and its own image folder (`<name>_<actor id>`), so actors with the same name no longer overwrite each other's images
+- Token images now apply to unlinked tokens; locked compendium actors and missing file-browse permission are caught before the paid request
+- One shared Runware connection instead of one per dialog, and the SDK is pinned to an exact version
+- Hardened the release workflow; the Foundry package-registry publish step is no longer skipped
 
 ### Version 0.9.0
 - Added automatic Runware API key validation when it's saved, and clear, actionable errors (instead of a silent minute-long hang) when generation or background removal hits an invalid key

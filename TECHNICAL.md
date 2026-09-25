@@ -144,7 +144,7 @@ game.settings.register(MODULE_ID, 'numberResults', {...}) // Optional
 
 ### Module Directory
 ```
-runware-image-generator/
+runware-imagegen/
 ├── module.json              # Manifest
 ├── README.md               # User documentation
 ├── SETUP.md                # Installation guide
@@ -172,7 +172,7 @@ Generated images are auto-created separately in the Foundry data root:
 Data/
 └── images/
     └── runware/
-        └── [actor-name]/
+        └── [actor-name]_[actor-id]/
             ├── image_N.png
             └── tokens/
                 └── token_N.png
@@ -331,6 +331,6 @@ const filename = `custom_name_${imageNumber}.png`;
 
 ---
 
-**Module Version**: 0.9.0
+**Module Version**: 1.0.0
 **FoundryVTT Version**: v13-v14 (verified v14.367)
 **Last Updated**: 2026
