@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.1]
+
+### Fixed
+
+- **Embeddings with standard model ids were broken**: `civitai:12345@67890` was split at its first
+  colon and sent to Runware as model `civitai`. Presets hit the same bug, since they save embeddings
+  in that format. Only a `:<number>` after the `@version` is now treated as a weight.
+- **Unbounded paid requests**: image count, width/height, steps, CFG scale and LoRA/embedding
+  weights are clamped in code before every request (the HTML `min`/`max` never applied, because
+  Generate doesn't submit the form). Width/height snap to multiples of 64, and an invalid or
+  oversized seed is rejected instead of being silently rounded to a different one.
+- **LoRA weight 0 was sent as 1** (`parseFloat(x) || 1.0`).
+- **Portrait saved before consent**: answering "No" or "Token Only" still left an `image_N.png` on
+  disk. Images are now saved only after the choice.
+- **Generated images lost on cancel**: cancelling the image picker, or a failed save or actor
+  update, closed the dialog and discarded the prompt. The dialog now stays open.
+- **Two dialogs shared one id**: opening the dialog for a second actor could replace the first
+  actor's dialog mid-generation. Dialogs are now per actor, and reopening brings the existing one to
+  the front. The preset manager is reused instead of stacked. Form element ids are scoped per
+  dialog.
+- **Actors with the same name overwrote each other's images**: folders are now
+  `images/runware/<name>_<actor id>/`, and accented names are transliterated instead of collapsing
+  to underscores. Existing images stay where they are.
+- **Unlinked token actors**: the token image is now applied to the placed token instead of the
+  synthetic actor's (meaningless) prototype token.
+- **Missing permission checks before paying**: locked compendium actors and users without
+  "Use File Browser" permission (saving needs it) are now stopped before the request.
+- **Background removal returning no image** silently saved the original as if removal had worked.
+- **Token save failures** were silent when background removal was enabled.
+- **The advanced-options panel collapsed** on every re-render (spinner, failure, preset update).
+- **Release workflow**: the Foundry package-registry publish step was always skipped (its `if:`
+  read an env var only defined on that same step).
+
+### Changed
+
+- **One shared Runware connection** (`scripts/runware-client.js`) for generation and background
+  removal, instead of one websocket per dialog that was never closed. It disconnects the old client
+  when the API key changes, and the key is read at generation time, so a fixed key takes effect
+  without reopening the dialog.
+- **Runware SDK pinned to exactly `1.3.2`** instead of `@1`: a runtime `import()` can't be checked
+  with SRI, so a floating range would run any future (or hijacked) release unreviewed.
+- **Release workflow hardened**: actions pinned to commit SHAs, `persist-credentials: false`, no
+  `npm ci` in the release job (the build uses only Node built-ins), least-privilege permissions, a
+  random changelog delimiter, removal of an unused step that interpolated the module title into
+  shell, and a check that fails the release if `package.json`, `module.json` and `CHANGELOG.md`
+  don't match the tag.
+- The presets hook now follows the ApplicationV2 lifecycle (`_onFirstRender` / `_onClose`), and
+  `render(true/false)` calls use the AppV2 option form.
+- The width/height settings now have a range; `module.json` has its `url`; `npm run lint` runs
+  ESLint.
+- Faster base64 decoding, one directory listing per save instead of two, anchored and
+  case-insensitive file numbering, and debug logging moved to `console.debug`.
+
+### Docs
+
+- The install folder must be named `runware-imagegen`; SETUP, QUICKSTART and TECHNICAL said
+  `runware-image-generator`, which produced a broken install.
+- README no longer calls the API key "stored securely" or says the token is generated
+  automatically.
+
 ## [v0.9.0]
 
 ### Added

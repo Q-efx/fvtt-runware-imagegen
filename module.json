@@ -1,7 +1,7 @@
 {
   "id": "runware-imagegen",
   "title": "Runware AI Image Generator",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "compatibility": {
     "minimum": "13",
     "verified": "14.367",
@@ -33,7 +33,7 @@
     "requires": []
   },
   "socket": false,
-  "url": "",
+  "url": "https://github.com/Q-efx/fvtt-runware-imagegen",
   "manifest": "",
   "download": "",
   "readme": "https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/README.md",

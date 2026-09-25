@@ -10,8 +10,8 @@
 
 1. **Install the Module**
    - Copy this entire directory to your FoundryVTT `Data/modules` folder
-   - The directory should be named `runware-image-generator`
-   - Final path should look like: `Data/modules/runware-image-generator/`
+   - The directory should be named `runware-imagegen`
+   - Final path should look like: `Data/modules/runware-imagegen/`
 
 2. **Enable the Module**
    - Launch FoundryVTT
@@ -38,7 +38,7 @@
 After installation, your module directory should look like this:
 
 ```
-runware-image-generator/
+runware-imagegen/
 ├── module.json           # Module manifest
 ├── README.md            # Documentation
 ├── LICENSE              # MIT License
@@ -59,7 +59,7 @@ runware-image-generator/
 │   └── en.json         # Unused; all strings are hardcoded
 ```
 
-Generated images are created separately at `Data/images/runware/[actor-name]/`; they are not part of the module directory.
+Generated images are created separately at `Data/images/runware/[actor-name]_[actor-id]/`; they are not part of the module directory.
 
 ## Getting a Runware API Key
 
@@ -120,8 +120,8 @@ so up front rather than being charged for a request whose result cannot be saved
 
 ### Check Module Files
 Ensure all files are in the correct location:
-- `modules/runware-image-generator/module.json` should exist
-- `modules/runware-image-generator/scripts/module.js` should exist
+- `modules/runware-imagegen/module.json` should exist
+- `modules/runware-imagegen/scripts/module.js` should exist
 
 ### Check Browser Console
 1. Open FoundryVTT
@@ -143,7 +143,7 @@ If you see: `Runware AI Image Generator: Please configure your Runware API key`
 
 ### Module Not Appearing in Module List
 **Cause**: Module files not in correct location
-**Solution**: Ensure the directory is named exactly `runware-image-generator` and is directly under `Data/modules/`
+**Solution**: Ensure the directory is named exactly `runware-imagegen` and is directly under `Data/modules/`
 
 ### Module Enabled but Button Not Showing
 **Causes**:
@@ -179,10 +179,10 @@ If you want to modify or develop this module:
 2. **Symlink** to your FoundryVTT modules folder:
    ```bash
    # On Linux/Mac
-   ln -s /path/to/runware-image-generator /path/to/FoundryData/modules/
+   ln -s /path/to/runware-imagegen /path/to/FoundryData/modules/
 
    # On Windows (as Administrator)
-   mklink /D "C:\FoundryData\modules\runware-image-generator" "C:\path\to\runware-image-generator"
+   mklink /D "C:\FoundryData\modules\runware-imagegen" "C:\path\to\runware-imagegen"
    ```
 3. **Install Development Dependencies**:
    ```bash
@@ -250,7 +250,7 @@ To remove the module:
 
 1. **Disable** the module in Module Management
 2. **Delete** the module directory:
-   - Remove `Data/modules/runware-image-generator/`
+   - Remove `Data/modules/runware-imagegen/`
 3. **Clean up images** (optional):
    - Generated images remain in `Data/images/runware/`
    - Delete `Data/images/runware/` if you want to remove all generated images

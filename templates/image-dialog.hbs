@@ -21,10 +21,10 @@
     <h3><i class="fas fa-pencil-alt"></i> Image Prompt</h3>
 
     <div class="runware-form-group">
-      <label for="prompt">Positive Prompt *</label>
+      <label for="{{partId}}-prompt">Positive Prompt *</label>
       <textarea
         name="prompt"
-        id="prompt"
+        id="{{partId}}-prompt"
         placeholder="Describe the image you want to generate..."
         required
         {{#if isGenerating}}disabled{{/if}}
@@ -33,10 +33,10 @@
     </div>
 
     <div class="runware-form-group">
-      <label for="negativePrompt">Negative Prompt</label>
+      <label for="{{partId}}-negativePrompt">Negative Prompt</label>
       <textarea
         name="negativePrompt"
-        id="negativePrompt"
+        id="{{partId}}-negativePrompt"
         placeholder="Describe what you don't want to see..."
         {{#if isGenerating}}disabled{{/if}}
       >{{negativePrompt}}</textarea>
@@ -50,9 +50,9 @@
 
     {{#if presets.length}}
     <div class="runware-form-group preset-selector">
-      <label for="presetSelection">Preset</label>
+      <label for="{{partId}}-presetSelection">Preset</label>
       <div class="preset-controls">
-        <select name="presetSelection" id="presetSelection" {{#if isGenerating}}disabled{{/if}}>
+        <select name="presetSelection" id="{{partId}}-presetSelection" {{#if isGenerating}}disabled{{/if}}>
           {{selectOptions presetOptions selected=appliedPresetId blank="Select a preset..."}}
         </select>
         {{#if canManagePresets}}
@@ -76,11 +76,11 @@
     {{/if}}
 
     <div class="runware-form-group">
-      <label for="model">AI Model *</label>
+      <label for="{{partId}}-model">AI Model *</label>
       <input
         type="text"
         name="model"
-        id="model"
+        id="{{partId}}-model"
         value="{{defaultModel}}"
         placeholder="e.g., runware:100@1"
         required
@@ -100,11 +100,11 @@
     <!-- Image Dimensions -->
     <div class="runware-dimensions">
       <div class="runware-form-group">
-        <label for="width">Width</label>
+        <label for="{{partId}}-width">Width</label>
         <input
           type="number"
           name="width"
-          id="width"
+          id="{{partId}}-width"
           value="{{imageWidth}}"
           min="256"
           max="2048"
@@ -114,11 +114,11 @@
       </div>
 
       <div class="runware-form-group">
-        <label for="height">Height</label>
+        <label for="{{partId}}-height">Height</label>
         <input
           type="number"
           name="height"
-          id="height"
+          id="{{partId}}-height"
           value="{{imageHeight}}"
           min="256"
           max="2048"
@@ -129,11 +129,11 @@
     </div>
 
     <div class="runware-form-group">
-      <label for="numberResults">Number of Images</label>
+      <label for="{{partId}}-numberResults">Number of Images</label>
       <input
         type="number"
         name="numberResults"
-        id="numberResults"
+        id="{{partId}}-numberResults"
         value="{{numberResults}}"
         min="1"
         max="4"
@@ -157,12 +157,12 @@
     <h3><i class="fas fa-cog"></i> Advanced Options</h3>
 
     <div class="advanced-options">
-      <button type="button" class="advanced-toggle collapsed" data-action="toggleAdvanced">
+      <button type="button" class="advanced-toggle{{#unless advancedExpanded}} collapsed{{/unless}}" data-action="toggleAdvanced">
         <span>Show Advanced Options</span>
         <i class="fas fa-chevron-down"></i>
       </button>
 
-      <div class="advanced-content">
+      <div class="advanced-content{{#if advancedExpanded}} expanded{{/if}}">
         <!-- LoRA Model -->
         <div class="runware-form-group">
           <label>LoRA Model (Optional)</label>
@@ -175,25 +175,25 @@
               {{#if isGenerating}}disabled{{/if}}
             />
             <div class="runware-form-group" style="margin: 0;">
-              <label for="loraWeight">Weight</label>
+              <label for="{{partId}}-loraWeight">Weight</label>
               <input
                 type="number"
                 name="loraWeight"
-                id="loraWeight"
+                id="{{partId}}-loraWeight"
                 value="{{loraWeight}}"
-                min="0"
-                max="2"
+                min="-4"
+                max="4"
                 step="0.1"
                 {{#if isGenerating}}disabled{{/if}}
               />
             </div>
           </div>
           <div class="runware-form-group" style="margin: 0;">
-            <label for="loraTrigger">Trigger Word</label>
+            <label for="{{partId}}-loraTrigger">Trigger Word</label>
             <input
               type="text"
               name="loraTrigger"
-              id="loraTrigger"
+              id="{{partId}}-loraTrigger"
               value="{{loraTrigger}}"
               placeholder="e.g., style keyword"
               {{#if isGenerating}}disabled{{/if}}
@@ -203,11 +203,11 @@
         </div>
 
         <div class="runware-form-group">
-          <label for="vaeModel">VAE (Optional)</label>
+          <label for="{{partId}}-vaeModel">VAE (Optional)</label>
           <input
             type="text"
             name="vaeModel"
-            id="vaeModel"
+            id="{{partId}}-vaeModel"
             value="{{vaeModel}}"
             placeholder="e.g., runware:vae@1"
             {{#if isGenerating}}disabled{{/if}}
@@ -216,11 +216,11 @@
         </div>
 
         <div class="runware-form-group">
-          <label for="embeddings">Embeddings (Optional)</label>
+          <label for="{{partId}}-embeddings">Embeddings (Optional)</label>
           <textarea
             name="embeddings"
-            id="embeddings"
-            placeholder="One embedding per line. Optionally append :weight, e.g., concept:0.8"
+            id="{{partId}}-embeddings"
+            placeholder="One embedding per line. Optionally append :weight, e.g., civitai:12345@67890:0.8"
             {{#if isGenerating}}disabled{{/if}}
           >{{embeddings}}</textarea>
           <small>Embeddings adjust the prompt with additional learned concepts.</small>
@@ -228,11 +228,11 @@
 
         <!-- Steps -->
         <div class="runware-form-group">
-          <label for="steps">Inference Steps</label>
+          <label for="{{partId}}-steps">Inference Steps</label>
           <input
             type="number"
             name="steps"
-            id="steps"
+            id="{{partId}}-steps"
             value="{{steps}}"
             placeholder="20-50 recommended"
             min="1"
@@ -244,11 +244,11 @@
 
         <!-- CFG Scale -->
         <div class="runware-form-group">
-          <label for="cfgScale">CFG Scale</label>
+          <label for="{{partId}}-cfgScale">CFG Scale</label>
           <input
             type="number"
             name="cfgScale"
-            id="cfgScale"
+            id="{{partId}}-cfgScale"
             value="{{cfgScale}}"
             placeholder="7.0 recommended"
             min="1"
@@ -261,11 +261,11 @@
 
         <!-- Seed -->
         <div class="runware-form-group">
-          <label for="seed">Seed (Optional)</label>
+          <label for="{{partId}}-seed">Seed (Optional)</label>
           <input
             type="number"
             name="seed"
-            id="seed"
+            id="{{partId}}-seed"
             value="{{seed}}"
             placeholder="Leave empty for random"
             {{#if isGenerating}}disabled{{/if}}

@@ -2,14 +2,26 @@ name: Release Creation
 on:
   release:
     types: [published]
-permissions:
-  contents: write
+permissions: {}
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Job-level so the publish step's `if:` can see it (a step can't read its
+    # own `env:` in its `if:`, which meant the publish step was always skipped).
+    # Only a boolean is exposed here; the token itself goes straight to `with:`.
+    env:
+      HAS_PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Third-party actions are pinned to commit SHAs: tags can be moved.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Don't leave the write token in .git/config for later steps to read.
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
 
       # get part of the tag after the `v`
       - name: Extract tag version number
@@ -32,25 +44,29 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES="See [CHANGELOG.md](https://github.com/${REPOSITORY}/blob/main/CHANGELOG.md) for details."
           fi
+          # Random delimiter so a changelog line can't terminate the block early
+          # and inject extra step outputs.
+          DELIM="CHANGELOG_EOF_$(openssl rand -hex 8)"
           {
-            echo "release-notes<<CHANGELOG_EOF"
+            echo "release-notes<<${DELIM}"
             echo "$NOTES"
-            echo "CHANGELOG_EOF"
+            echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Get Module JSON
-        id: set_var
+      - name: Check versions match the tag
+        env:
+          VERSION: ${{ steps.get-version.outputs.version-without-v }}
         run: |
-          echo "PACKAGE_JSON=$(jq -c . < module.json)" >> $GITHUB_OUTPUT
-
-      - name: Get Module Title
-        id: title
-        run: echo "title=${{ fromJson(steps.set_var.outputs.PACKAGE_JSON).title }}" >> "$GITHUB_OUTPUT"
+          fail=0
+          [ "$(jq -r .version package.json)" = "$VERSION" ] || { echo "::error::package.json version != $VERSION"; fail=1; }
+          [ "$(jq -r .version module.json)" = "$VERSION" ] || { echo "::error::module.json version != $VERSION"; fail=1; }
+          grep -q "^## \[v$VERSION\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [v$VERSION] heading"; fail=1; }
+          exit $fail
 
       # Substitute the Manifest and Download URLs in the `module.json`.
       - name: Substitute Manifest and Download Links For Versioned Ones
         id: sub_manifest_link_version
-        uses: devops-actions/variable-substitution@v1.2
+        uses: devops-actions/variable-substitution@ae7b1f3676ae374dc70282e6b9650bc50b611222 # v1.2
         with:
           files: module.json
         env:
@@ -58,10 +74,10 @@ jobs:
           manifest: https://github.com/${{ github.repository }}/releases/latest/download/module.json
           download: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.zip
 
+      # build.mjs only uses Node built-ins, so no `npm ci`: installing ~200 dev
+      # packages here would run their install scripts with release write access.
       - name: Build
-        run: |
-          npm ci
-          npm run build
+        run: node build.mjs
 
       # Zip the contents of build/ (already a complete, self-contained module directory)
       # so that module.json ends up at the root of module.zip, not nested under build/.
@@ -70,7 +86,7 @@ jobs:
 
       - name: Update Release with Files
         id: create_version_release
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
         with:
           allowUpdates: true
           omitDraftDuringUpdate: true
@@ -80,11 +96,9 @@ jobs:
           artifacts: './module.json, ./module.zip'
 
       - name: Publish to FoundryVTT
-        uses: cs96and/FoundryVTT-release-package@v1.0.3
-        if: ${{ !github.event.release.prerelease && env.PACKAGE_TOKEN }}
-        env:
-          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+        uses: cs96and/FoundryVTT-release-package@e27cef796b4dd34493c1bc29e00fc772b89715d6 # v1.0.3
+        if: ${{ !github.event.release.prerelease && env.HAS_PACKAGE_TOKEN == 'true' }}
         with:
-          package-token: ${{ env.PACKAGE_TOKEN }}
+          package-token: ${{ secrets.PACKAGE_TOKEN }}
           manifest-url: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.json
           notes-url: https://github.com/Q-efx/fvtt-runware-imagegen/blob/main/CHANGELOG.md

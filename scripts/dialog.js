@@ -4,22 +4,57 @@
  * An ApplicationV2 for configuring and generating AI images using Runware SDK
  */
 
-import { MODULE_ID, MODULE_NAME } from './constants.js';
+import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
 import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
-import { checkRunwareApiKey } from './runware-connection.js';
+import { getRunwareClient } from './runware-client.js';
+
+/**
+ * Parse a form value as a finite number, or return null for blank/invalid input.
+ * Unlike `parseFloat(x) || fallback`, this keeps a legitimate 0.
+ */
+function toFiniteNumber(value) {
+  if (value === undefined || value === null || `${value}`.trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function clamp(value, { min, max }) {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Clamp a width/height to Runware's accepted range and snap it to a multiple of 64.
+ */
+function normalizeDimension(value) {
+  const { step, fallback } = LIMITS.dimension;
+  const number = toFiniteNumber(value);
+  if (number === null) return fallback;
+  return clamp(Math.round(number / step) * step, LIMITS.dimension);
+}
+
+/**
+ * Application id for an actor's dialog. One dialog per actor: a fixed id made
+ * a second actor's dialog replace the first one's DOM while its generation was
+ * still running.
+ * @param {Actor} actor
+ * @returns {string}
+ */
+export function getImageDialogId(actor) {
+  const key = String(actor?.uuid ?? actor?.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-');
+  return `runware-image-dialog-${key}`;
+}
 
 export class RunwareImageDialog extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2
 ) {
   constructor(options = {}) {
-    super(options);
+    super({ id: getImageDialogId(options.actor), ...options });
 
     this.actor = options.actor;
-    this.apiKey = options.apiKey;
     this.onImageGenerated = options.onImageGenerated;
-    this.runware = null;
     this.isGenerating = false;
+    this.advancedExpanded = false;
     this.availablePresets = [];
     this.appliedPresetId = null;
     // Snapshot of the user's live form values, captured just before any
@@ -30,11 +65,10 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     this._boundPresetSelect = null;
     this._handlePresetSelectChange = this._handlePresetSelectChange.bind(this);
     this._handlePresetsUpdated = this._handlePresetsUpdated.bind(this);
-    Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
+    this._presetsHookId = null;
   }
 
   static DEFAULT_OPTIONS = {
-    id: 'runware-image-dialog',
     classes: ['runware-image-dialog'],
     tag: 'form',
     window: {
@@ -113,6 +147,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       cfgScale: state.cfgScale ?? '',
       seed: state.seed ?? '',
       isGenerating: this.isGenerating,
+      advancedExpanded: this.advancedExpanded,
       presets: presets,
       presetOptions,
       canManagePresets: game.user.isGM,
@@ -186,7 +221,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     // Start generation
     this._captureFormState(); // Preserve what the user typed before the spinner re-render
     this.isGenerating = true;
-    this.render(false); // Re-render to show loading state
+    this.render(); // Re-render to show loading state
 
     try {
       ui.notifications.info(`${MODULE_NAME}: Generating image...`);
@@ -194,15 +229,19 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       // Generate the image using Runware SDK
       const imageData = await this._generateImage(formData);
 
-      // Call the callback with the generated image
+      // Call the callback with the generated image. It resolves `false` when
+      // the flow didn't finish (picker cancelled, save failed, ...); keep the
+      // dialog and the user's prompt in that case instead of closing on them.
+      let completed = true;
       if (this.onImageGenerated && imageData) {
-        await this.onImageGenerated(imageData, {
+        completed = (await this.onImageGenerated(imageData, {
           removeBackground: !!formData.removeBackground
-        });
+        })) !== false;
       }
 
-      // Close the dialog on success
-      await this.close();
+      if (completed) {
+        await this.close();
+      }
 
     } catch (error) {
       console.error(`${MODULE_NAME} | Image generation error:`, error);
@@ -218,7 +257,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       this.isGenerating = false;
       if (this.rendered) {
         this._captureFormState(); // Fields are disabled during generation so this is a no-op today, but keeps this re-render self-protecting if that ever changes
-        this.render(false);
+        this.render();
       }
     }
   }
@@ -227,7 +266,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
    * Snapshot the current values of the user-editable form fields into
    * `this.formState` so they can be restored across a re-render (e.g. a
    * failed generation, or a preset update pushed by the GM while this dialog
-   * is open). Must be called before `this.render(false)` at every site that
+   * is open). Must be called before `this.render()` at every site that
    * could otherwise wipe the live form.
    *
    * The dialog root has `tag: 'form'`, so it IS the form (`this.form`
@@ -272,7 +311,14 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   async _onManagePresets(event, target) {
     event.preventDefault();
     if (!game.user.isGM) return;
-    new RunwarePresetConfig().render(true);
+    // Reuse an open preset manager instead of stacking a second copy (which
+    // would also discard the first one's unsaved edits).
+    const existing = foundry.applications.instances?.get(RunwarePresetConfig.DEFAULT_OPTIONS.id);
+    if (existing) {
+      existing.bringToFront?.();
+      return;
+    }
+    new RunwarePresetConfig().render({ force: true });
   }
 
   _handlePresetSelectChange(event) {
@@ -374,8 +420,10 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const toggle = target?.closest('.advanced-toggle');
     if (!toggle) return;
     const content = toggle.nextElementSibling;
-    toggle.classList.toggle('collapsed');
-    content?.classList.toggle('expanded');
+    // Remember the state so the spinner/failure re-renders don't collapse it.
+    this.advancedExpanded = !this.advancedExpanded;
+    toggle.classList.toggle('collapsed', !this.advancedExpanded);
+    content?.classList.toggle('expanded', this.advancedExpanded);
   }
 
   _mapPreset(rawPreset) {
@@ -430,14 +478,16 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       .map((segment) => segment.trim())
       .filter((segment) => segment.length > 0)
       .map((segment) => {
-        const [model, weightRaw] = segment.split(':').map((part) => part.trim());
-        // A blank weight (e.g. "model:" with nothing after the colon) must fall
-        // back to 1, not coerce to Number('') === 0 - same pitfall as
-        // RunwarePresetConfig#_coerceNumber, fixed the same way here.
-        const weight = weightRaw !== undefined && weightRaw !== '' ? Number(weightRaw) : 1;
+        // Model ids are AIR ids that contain a colon themselves
+        // (`civitai:12345@67890`), so only a `:<number>` *after* the `@version`
+        // is a weight. A blank weight ("model:") falls back to 1, not
+        // Number('') === 0.
+        const match = segment.match(/^(.+@[^:]*):\s*(-?\d*\.?\d+)?$/);
+        const model = (match?.[1] ?? segment).trim();
+        const weight = toFiniteNumber(match?.[2]);
         return {
           model,
-          weight: Number.isFinite(weight) ? weight : 1
+          weight: weight === null ? 1 : clamp(weight, LIMITS.weight)
         };
       })
       .filter((embedding) => embedding.model);
@@ -457,7 +507,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
     if (this.rendered) {
       this._captureFormState(); // Don't let the GM's preset edit wipe the user's in-progress prompt
-      this.render(false);
+      this.render();
     }
   }
 
@@ -497,13 +547,21 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     }
   }
 
-  async close(options) {
-    Hooks.off('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
+  async _onFirstRender(context, options) {
+    await super._onFirstRender(context, options);
+    this._presetsHookId = Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
+  }
+
+  _onClose(options) {
+    super._onClose(options);
+    if (this._presetsHookId !== null) {
+      Hooks.off('runware-imagegen.presetsUpdated', this._presetsHookId);
+      this._presetsHookId = null;
+    }
     if (this._boundPresetSelect) {
       this._boundPresetSelect.removeEventListener('change', this._handlePresetSelectChange);
       this._boundPresetSelect = null;
     }
-    return super.close(options);
   }
 
   /**
@@ -512,23 +570,9 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
    * @returns {Promise<Object>} The generated image data
    */
   async _generateImage(formData) {
-    // Dynamically import Runware SDK
-    // In production, this should be bundled or loaded via CDN
-    // Pinned to the major version (@1) rather than @latest: @latest currently
-    // resolves to 1.3.2, so this is behaviourally identical today, but it
-    // stops a future 2.x release from being pulled in silently and breaking
-    // every user at once. Keep in sync with the matching import in module.js
-    // (getBackgroundRemovalClient()).
-    const { Runware } = await import('https://cdn.jsdelivr.net/npm/@runware/sdk-js@1/+esm');
-
-    // Initialize Runware SDK
-    if (!this.runware) {
-      // Check the key ourselves first: Runware.initialize()'s own failure
-      // detection can take up to a minute to report an invalid key instead
-      // of failing fast - see runware-connection.js for why.
-      await checkRunwareApiKey(this.apiKey);
-      this.runware = await Runware.initialize({ apiKey: this.apiKey });
-    }
+    // Read the key now rather than when the dialog opened, so a key the GM
+    // fixes while this dialog is open takes effect on the next attempt.
+    const runware = await getRunwareClient(game.settings.get(MODULE_ID, 'apiKey'));
 
     const basePrompt = (formData.prompt ?? '').trim();
     const loraModel = formData.loraModel?.trim() ?? '';
@@ -548,9 +592,12 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const requestParams = {
       positivePrompt: positivePrompt,
       model: formData.model,
-      width: parseInt(formData.width) || 512,
-      height: parseInt(formData.height) || 512,
-      numberResults: parseInt(formData.numberResults) || 1,
+      width: normalizeDimension(formData.width),
+      height: normalizeDimension(formData.height),
+      numberResults: Math.round(clamp(
+        toFiniteNumber(formData.numberResults) ?? LIMITS.numberResults.fallback,
+        LIMITS.numberResults
+      )),
       outputType: 'base64Data', // We'll get base64 data to save locally
       outputFormat: 'PNG'
     };
@@ -564,7 +611,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     if (loraModel) {
       requestParams.lora = [{
         model: loraModel,
-        weight: parseFloat(formData.loraWeight) || 1.0
+        weight: clamp(toFiniteNumber(formData.loraWeight) ?? 1, LIMITS.weight)
       }];
     }
 
@@ -572,30 +619,35 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       requestParams.vae = formData.vaeModel.trim();
     }
 
-  const parsedEmbeddings = this._parseEmbeddings(formData.embeddings);
+    const parsedEmbeddings = this._parseEmbeddings(formData.embeddings);
     if (parsedEmbeddings.length > 0) {
       requestParams.embeddings = parsedEmbeddings;
     }
 
-    // Add steps if provided
-    if (formData.steps) {
-      requestParams.steps = parseInt(formData.steps);
+    const steps = toFiniteNumber(formData.steps);
+    if (steps !== null) {
+      requestParams.steps = Math.round(clamp(steps, LIMITS.steps));
     }
 
-    // Add CFG scale if provided
-    if (formData.cfgScale) {
-      requestParams.CFGScale = parseFloat(formData.cfgScale);
+    const cfgScale = toFiniteNumber(formData.cfgScale);
+    if (cfgScale !== null) {
+      requestParams.CFGScale = clamp(cfgScale, LIMITS.cfgScale);
     }
 
-    // Add seed if provided (for reproducibility)
-    if (formData.seed) {
-      requestParams.seed = parseInt(formData.seed);
+    // Seed (for reproducibility). Must be a safe positive integer - parseInt
+    // silently rounds large values, which would send a different seed.
+    const seedRaw = `${formData.seed ?? ''}`.trim();
+    if (seedRaw) {
+      const seed = Number(seedRaw);
+      if (!Number.isSafeInteger(seed) || seed < 1) {
+        throw new Error(`Seed must be a whole number between 1 and ${Number.MAX_SAFE_INTEGER}.`);
+      }
+      requestParams.seed = seed;
     }
 
-    console.log(`${MODULE_NAME} | Generating image with parameters:`, requestParams);
+    console.debug(`${MODULE_NAME} | Generating image with parameters:`, requestParams);
 
-    // Generate the image
-    const images = await this.runware.requestImages(requestParams);
+    const images = await runware.requestImages(requestParams);
 
     if (!images || images.length === 0) {
       throw new Error('No images were generated');
