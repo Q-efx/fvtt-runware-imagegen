@@ -13,9 +13,12 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
   - LoRA model support for style adaptation
   - CFG Scale, inference steps, and seed control
   - Generate multiple images at once (1-4) with an in-app gallery to pick your favorite result
-- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/<actor-name>_<actor-id>/` in the Foundry data directory (tokens live in the `/tokens` subfolder)
-- 🖼️ **Quick Application**: Instantly apply the chosen render as the actor portrait, with multi-image preview selection when multiple results are generated
-- 🪄 **Token Ready**: On request, the background is removed via Runware RMBG v2.0 and the result is saved as the token image
+- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/<actor-name>_<actor-id>/` in the Foundry data directory (tokens live in the `/tokens` subfolder, generated backgrounds in `/backgrounds`); generated rings are shared by the whole world in `images/runware/rings/`
+- 🖼️ **Use This Image**: After picking a result, choose separately what the portrait and the token should be, with a live preview - nothing is paid for or saved until you press Apply
+- 🪄 **Token Ready**: The token always gets a background-free subject (Bria RMBG 2.0 by default), with:
+  - No ring, Foundry's dynamic token ring (ring colour, background colour, subject scale), or a custom AI-generated ring baked into the token image
+  - A transparent, solid-colour, or AI-generated background kept inside the ring
+  - Portraits can keep their background, have it removed, or get a newly generated one
 - 🔐 **API key in world settings**: only the GM can change it, but every connected player can read it - see [SETUP.md](SETUP.md)
 
 ## Installation
@@ -49,6 +52,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
    - **Image Width**: Default width for generated images (512px recommended)
    - **Image Height**: Default height for generated images (512px recommended)
    - **Number of Results**: How many images to generate per request (1-4)
+   - **Background Removal Model** and the **ring / background prompt templates** - see [SETUP.md](SETUP.md)
 
 ## Usage
 
@@ -61,8 +65,27 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 4. **Select a Model**: Choose from the suggested models or enter a custom model ID
 5. **Click "Generate Image"**
 6. **Wait for Generation**: The module will display a loading indicator
-7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite; the selected image is then shown in a confirmation dialog
-8. **Confirm or Save**: The chosen portrait is stored in `images/runware/[actor-name]_[actor-id]/` in the Foundry data directory, and, if you choose to use it for the token, a background-free copy is saved in `images/runware/[actor-name]_[actor-id]/tokens/`.
+7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite
+8. **Use this image**: A window opens with a preview and two cards, **Set as portrait** and **Set as token** (see below). Untick either one to leave it unchanged
+9. **Click Apply**: The button lists the paid calls it will make, e.g. *Apply (1 background removal, 1 background generation)*. The images are then built, saved, and applied to the actor. **Back to images** returns to the gallery; **Cancel** (or closing the window) saves nothing and keeps the generation dialog open with your prompt
+
+### Portrait and Token Options
+
+**Portrait - Background**
+- **Keep original**: the image exactly as generated
+- **Remove background**: preselected when **Remove Background** is ticked in the generation form
+- **Generate new background**: the character is cut out and placed on a newly generated background (the prompt is prefilled and editable)
+
+**Token** - the background is always removed from the token's character.
+- **Ring**
+  - **No ring**: just the transparent character
+  - **Foundry dynamic ring** (only offered if your system has dynamic rings): set a ring colour, background colour, and subject scale. The ring *style* is a world-wide Foundry setting chosen by the GM
+  - **Custom ring**: pick a ring that anyone in this world generated before, or choose **Generate new ring…**, edit the prompt, and click **Generate ring** (paid: one image plus one background removal; you can regenerate before applying). The ring is baked into the token image, and Foundry's dynamic ring is turned off for this token
+- **Token background**: **Transparent** (called **Ring default** under a dynamic ring), **Solid colour** (dynamic ring only), or **Generate background**, which is clipped to a circle inside the ring. If the portrait also gets a new background, the token can reuse it for free
+
+Rings and backgrounds are generated with the model and settings from the generation form. If Apply fails, press it again: results you already paid for are reused, also after **Back to images**.
+
+> A GM's **Prototype Token Overrides** (core setting) can force ring settings per actor type and win over these choices.
 
 ### Advanced Options
 
@@ -113,11 +136,15 @@ Data/
         image_3.png
         tokens/
           token_1.png
+        backgrounds/
+          background_1.png
       npc_shopkeeper/
         image_1.png
         image_2.png
         tokens/
           token_1.png
+      rings/
+        ring_1.png
 ```
 
 - Actor names are sanitized (special characters replaced with underscores)
@@ -125,7 +152,8 @@ Data/
 - Images persist across sessions
 - Images are kept outside the module directory, so updating or uninstalling the module does not remove them
 - You can access these files directly via the FilePicker
-- Background-removed token images are stored alongside portraits under the `tokens/` subdirectory
+- Token images are stored alongside portraits under the `tokens/` subdirectory, and generated backgrounds under `backgrounds/` so they can be reused
+- Generated rings go to the shared `rings/` folder, so every actor's **Custom ring** picker can offer them
 
 ## Prompt Tips
 
@@ -171,6 +199,9 @@ You can emphasize parts of your prompt:
 - Try a different model from the suggestions
 - Check browser console for detailed error messages
 
+### "Background removal failed"
+**Solution**: The token and the "Remove / Generate new background" options need a working background-removal model. The window stays open so you can retry; check the **Background Removal Model** setting (clear it to restore the default `bria:2@1`) and your Runware balance.
+
 ### Images not saving
 **Possible causes**:
 - Insufficient permissions on the Data directory
@@ -202,7 +233,7 @@ This module uses the [Runware SDK](https://github.com/runware/sdk-js) to communi
 - **Multiple Models**: Support for Runware and CivitAI models
 - **LoRA Support**: Style adaptation via LoRA models
 - **Advanced Parameters**: CFG Scale, steps, seed control
-- **Background Removal**: Automated RMBG v2.0 workflow to create transparent token assets
+- **Background Removal**: Bria RMBG 2.0 (`bria:2@1`) by default, configurable, for transparent tokens, custom rings, and new backgrounds
 
 ## Credits
 
@@ -223,6 +254,12 @@ For issues, feature requests, or questions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Unreleased
+- New "Use this image" window replaces the "Set as Actor Image?" prompt: configure portrait and token separately, with a preview, and see the paid calls before Apply
+- Portraits can keep, remove, or replace their background with a generated one
+- Tokens: Foundry dynamic ring (colours, subject scale), AI-generated custom rings shared across the world, and transparent, solid-colour or generated backgrounds
+- Background removal now uses Bria RMBG 2.0 (`bria:2@1`) - Runware shut down the old model - and is configurable, along with the ring and background prompt templates
 
 ### Version 1.0.1
 - Fixed the release workflow: a release whose files didn't match its tag was published without `module.json`/`module.zip`, breaking installs and updates

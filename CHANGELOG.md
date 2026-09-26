@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **"Use this image" window**: after picking an image, portrait and token are configured as two
+  separate outputs with a live preview. Nothing is removed, generated or saved until **Apply**,
+  whose label lists the paid calls it will make (e.g. "Apply (1 background removal, 1 background
+  generation)"). **Back to images** returns to the picker; Cancel or closing the window keeps the
+  generation dialog open with its prompt.
+- **Portrait background**: Keep original, Remove background, or **Generate new background** (the
+  subject is cut out and composited over a newly generated background).
+- **Token rings**: the token always gets a transparent subject, with a choice of
+  - **No ring**;
+  - **Foundry dynamic ring** (default when the system provides one): ring colour, background colour
+    and subject scale are written to `prototypeToken.ring.*`. The ring style itself stays the GM's
+    world-wide `core.dynamicTokenRing` setting;
+  - **Custom ring**: pick a ring previously generated in this world, or generate a new one (paid: one
+    image plus one background removal). Its centre is cut out in code, and it is baked into a
+    static token image with the dynamic ring turned off, because dynamic ring styles are world-wide.
+- **Token background**: transparent (the ring's default under a dynamic ring), a solid colour
+  (dynamic ring only), or a generated background clipped inside the ring. It can reuse the
+  portrait's generated background instead of paying for a second one.
+- **Settings**: `backgroundRemovalModel`, and editable prompt templates for rings and backgrounds
+  (`ringPromptTemplate`, `ringNegativePromptTemplate`, `backgroundPromptTemplate`,
+  `backgroundNegativePromptTemplate`) with `{material}`, `{scene}` and `{prompt}` placeholders.
+  Clearing a field restores its default.
+- New files: `…/backgrounds/background_N.png` per actor, and world-shared rings in
+  `images/runware/rings/ring_N.png`.
+
+### Changed
+
+- **Background removal model**: `runware:110@1` was shut down by Runware on 2026-06-30. The default
+  is now `bria:2@1` (Bria RMBG 2.0); `runware:109@1` (RemBG 1.4) is far cheaper but rougher.
+- The **"Set as Actor Image?"** prompt is replaced by the new window, and the generation form's
+  "Remove Background" checkbox now only preselects "Remove background" for the portrait. Background
+  removal no longer runs before you decide how the image is used.
+- Choosing **No ring** or a custom ring switches the token's dynamic ring off.
+- Paid results (subject cut-out, backgrounds, a generated ring) are kept until the flow ends, so
+  pressing Apply again after a failure, or going back to the images and picking again, doesn't pay
+  for them twice or upload duplicate files.
+- Settings registration moved from `module.js` to `scripts/settings.js`.
+- Escape no longer closes the generation dialog while a generation or the "Use this image" step is
+  in progress, so cancelling the output step keeps the prompt (the X button still closes it).
+
 ## [v1.0.1]
 
 ### Fixed

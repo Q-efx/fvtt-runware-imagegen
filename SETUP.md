@@ -46,20 +46,26 @@ runware-imagegen/
 ├── .gitignore          # Git ignore rules
 ├── scripts/
 │   ├── module.js       # Main module file
+│   ├── settings.js     # Module settings
 │   ├── dialog.js       # Image generation dialog
+│   ├── output-dialog.js # "Use this image" window
+│   ├── asset-generation.js # Background removal, rings, backgrounds
+│   ├── image-compositor.js # Canvas compositing
+│   ├── token-ring.js   # Foundry dynamic ring helpers
 │   ├── preset-config.js # GM-only preset manager
 │   ├── file-handler.js # File saving utilities
-│   └── constants.js    # Module id/name
+│   └── constants.js    # Module id/name, limits, token geometry
 ├── styles/
 │   └── module.css      # Module styles
 ├── templates/
 │   ├── image-dialog.hbs # Dialog template
+│   ├── output-dialog.hbs # "Use this image" template
 │   └── preset-config.hbs # Preset manager template
 ├── lang/
 │   └── en.json         # Unused; all strings are hardcoded
 ```
 
-Generated images are created separately at `Data/images/runware/[actor-name]_[actor-id]/`; they are not part of the module directory.
+Generated images are created separately at `Data/images/runware/[actor-name]_[actor-id]/` (with `tokens/` and `backgrounds/` subfolders), and generated token rings at `Data/images/runware/rings/`, shared by the whole world; they are not part of the module directory.
 
 ## Getting a Runware API Key
 
@@ -115,6 +121,37 @@ so up front rather than being charged for a request whose result cannot be saved
 **Optional** - Default: `1`
 - How many images to generate per request (1-4)
 - More images = higher API cost
+
+### Background Removal Model
+**Optional** - Default: `bria:2@1` (Bria RMBG 2.0)
+- The Runware model used for every background removal: transparent tokens, "Remove background" and "Generate new background" portraits, and custom rings
+- `runware:109@1` (RemBG 1.4) is far cheaper but gives rougher edges
+- The previous model, `runware:110@1`, was shut down by Runware on 2026-06-30
+- Leave empty to restore the default
+
+### Ring Prompt Template / Ring Negative Prompt Template
+**Optional** - Prefilled into the **Generate new ring…** prompts of the "Use this image" window, where they can still be edited per use
+- `{material}` is replaced with `polished steel and gold filigree`
+- `{prompt}` is replaced with the character's generation prompt
+- Leave empty to restore the default
+
+### Background Prompt Template / Background Negative Prompt Template
+**Optional** - Prefilled into the portrait and token background prompts
+- `{scene}` is replaced with `misty fantasy forest at dusk`
+- `{prompt}` is replaced with the character's generation prompt (this tends to paint the character into the background, so the default doesn't use it)
+- Leave empty to restore the default
+
+### What costs money
+Every Runware call is charged to the API key's account:
+- **Generating images** in the generation dialog
+- **One background removal** per Apply whenever a token is set or the portrait background is removed or replaced (about $0.018 with `bria:2@1`, $0.0006 with `runware:109@1` at the time of writing)
+- **One background generation** per generated background - one image with the generation dialog's model and settings, at the portrait's size (square for the token). A token that reuses the portrait's background costs nothing extra
+- **Generate ring**: one 1024x1024 image plus one background removal, charged immediately when clicked. The ring is only saved on Apply, so cancelling afterwards discards it
+
+The Apply button lists the removals and background generations it will make. If Apply fails, or you go back to the images and pick again, results already paid for are reused.
+
+### Dynamic token rings
+The **Foundry dynamic ring** option uses the ring style selected in Foundry's core **Dynamic Token Ring** setting (`core.dynamicTokenRing`), which applies to the whole world. It is hidden when the game system provides no dynamic ring. Foundry's **Prototype Token Overrides** setting (`core.prototypeTokenOverrides`) can force ring settings per actor type and wins over this module's choices.
 
 ## Verifying Installation
 

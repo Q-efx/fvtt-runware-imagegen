@@ -4,35 +4,43 @@
  * Utilities for saving generated images to the FoundryVTT data directory
  */
 
-import { MODULE_NAME } from './constants.js';
+import { MODULE_NAME, RINGS_DIRECTORY } from './constants.js';
 
 export class ImageFileHandler {
   /**
-   * Save a generated image to the Foundry data directory
-   * @param {Actor} actor - The actor for which the image was generated
+   * Save a generated image to the Foundry data directory.
+   *
+   * Where each `type` lands (relative to the Foundry data root):
+   * - `avatar`     -> images/runware/<actor folder>/image_N.png
+   * - `token`      -> images/runware/<actor folder>/tokens/token_N.png
+   * - `background` -> images/runware/<actor folder>/backgrounds/background_N.png
+   * - `ring`       -> RINGS_DIRECTORY/ring_N.png (shared by every actor; `actor` is ignored and may be null)
+   *
+   * @param {Actor|null} actor - The actor for which the image was generated (unused for `ring`)
    * @param {Object} imageData - The image data from Runware
+   * @param {Object} [options]
+   * @param {'avatar'|'token'|'background'|'ring'} [options.type='avatar'] - What kind of image this is
    * @returns {Promise<string>} The path to the saved image
+   * @throws {Error} For an unknown `type`, missing image data, or a failed browse/upload
    */
   static async saveImage(actor, imageData, options = {}) {
     try {
       const { type = 'avatar' } = options;
 
       // Get the base64 image data
-      let base64Data = imageData.imageBase64Data;
+      let base64Data = imageData?.imageBase64Data;
 
       if (!base64Data) {
         throw new Error('No base64 image data provided');
       }
 
-      // Create directory path: images/runware/<actor folder>/[tokens] at the Foundry data root
-      const baseDirPath = `images/runware/${this.getActorFolderName(actor)}`;
-      const dirPath = type === 'token' ? `${baseDirPath}/tokens` : baseDirPath;
+      // Resolve the target directory and filename prefix at the Foundry data root
+      const { dirPath, filenamePrefix } = this._getSaveTarget(actor, type);
 
       // Ensure the directory exists and list what's already in it
       const existingFiles = await this._ensureDirectory(dirPath);
 
-      // Get the next image number for this actor and image type
-      const filenamePrefix = type === 'token' ? 'token_' : 'image_';
+      // Get the next image number for this directory and image type
       const imageNumber = this._getNextImageNumber(existingFiles, filenamePrefix);
 
       // Create filename
@@ -59,6 +67,74 @@ export class ImageFileHandler {
       console.error(`${MODULE_NAME} | Error saving image:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Directory and filename prefix for a saveImage() `type`. Only `ring` is
+   * actor-independent; everything else lives under the actor's folder.
+   * @param {Actor|null} actor
+   * @param {string} type - `avatar`, `token`, `background` or `ring`
+   * @returns {{ dirPath: string, filenamePrefix: string }}
+   * @throws {Error} For an unknown type, so a typo can't silently land in the avatar folder
+   */
+  static _getSaveTarget(actor, type) {
+    if (type === 'ring') {
+      return { dirPath: RINGS_DIRECTORY, filenamePrefix: 'ring_' };
+    }
+
+    const baseDirPath = `images/runware/${this.getActorFolderName(actor)}`;
+    switch (type) {
+      case 'avatar':
+        return { dirPath: baseDirPath, filenamePrefix: 'image_' };
+      case 'token':
+        return { dirPath: `${baseDirPath}/tokens`, filenamePrefix: 'token_' };
+      case 'background':
+        return { dirPath: `${baseDirPath}/backgrounds`, filenamePrefix: 'background_' };
+      default:
+        throw new Error(`Unknown image type "${type}"`);
+    }
+  }
+
+  /**
+   * List the saved token rings, newest first. Browse only: the rings folder is
+   * never created here (that happens on the first ring save), and any failure -
+   * missing folder, no browse permission, FilePicker unavailable - yields an
+   * empty list, because an empty ring picker is a fine fallback.
+   * @returns {Promise<string[]>} Data paths of the ring images (png/webp), sorted by ring number descending
+   */
+  static async listRings() {
+    let files;
+    try {
+      const filePicker = this._getFilePicker();
+      const result = await filePicker.browse('data', RINGS_DIRECTORY);
+      files = Array.isArray(result?.files) ? result.files : [];
+    } catch (error) {
+      console.debug(`${MODULE_NAME} | No saved rings to list:`, error);
+      return [];
+    }
+
+    const ringNumber = (file) => {
+      let name = file;
+      try {
+        name = decodeURIComponent(file);
+      } catch {
+        // Not URI-encoded - match the raw path.
+      }
+      const basename = name.split('/').pop() ?? '';
+      const match = basename.match(/^ring_(\d+)\./i);
+      return match ? parseInt(match[1], 10) : null;
+    };
+
+    return files
+      .filter((file) => typeof file === 'string' && /\.(png|webp)$/i.test(file))
+      .map((file) => ({ file, number: ringNumber(file) }))
+      .sort((a, b) => {
+        if (a.number !== null && b.number !== null) return b.number - a.number;
+        if (a.number !== null) return -1;
+        if (b.number !== null) return 1;
+        return a.file.localeCompare(b.file);
+      })
+      .map(({ file }) => file);
   }
 
   /**
@@ -137,7 +213,7 @@ export class ImageFileHandler {
   /**
    * Get the next available image number from a directory listing.
    * @param {string[]} files - Paths returned by FilePicker.browse()
-   * @param {string} filenamePrefix - `image_` or `token_`
+   * @param {string} filenamePrefix - `image_`, `token_`, `background_` or `ring_`
    * @returns {number} The highest existing number + 1
    */
   static _getNextImageNumber(files, filenamePrefix = 'image_') {

@@ -30,16 +30,33 @@ files under `build/` — edit `scripts/` and rebuild.
 
 ## Architecture
 
-Everything lives in `scripts/` (~1900 lines total):
+Everything lives in `scripts/` (~4100 lines total):
 
-- **`constants.js`** — `MODULE_ID` (`runware-imagegen`), `MODULE_NAME`, and `LIMITS` (request
-  bounds). Import these everywhere rather than hardcoding the id; template paths are the one
-  exception (see below).
-- **`module.js`** — entry point named in `module.json`'s `esmodules`. Registers settings and the
-  preset menu on `init`, injects the sheet button, and orchestrates the whole post-generation flow:
-  image selection → optional background removal → confirm → save → `actor.update()` (or the placed
-  token's texture for unlinked token actors). `handleGeneratedImage()` returns `false` when the
-  flow was abandoned or failed, and the dialog stays open in that case.
+- **`constants.js`** — `MODULE_ID` (`runware-imagegen`), `MODULE_NAME`, `LIMITS` (request
+  bounds), the token geometry (`TOKEN_SIZE`, `RING_INNER_RADIUS`, `CUSTOM_RING_SUBJECT_SCALE`,
+  `CUSTOM_RING_BACKGROUND_OVERLAP`, `RING_GENERATION_SIZE`), `RINGS_DIRECTORY`, and the `DEFAULT_*`
+  removal model and prompt templates. Import these everywhere rather than hardcoding the id or a
+  magic number; template paths are the one exception (see below).
+- **`settings.js`** — `registerSettings()`, called from `init`: every world setting plus the preset
+  menu. `module.js` passes in the API-key `onChange` handler.
+- **`module.js`** — entry point named in `module.json`'s `esmodules`. Injects the sheet button and
+  orchestrates the post-generation flow: image selection → `RunwareOutputDialog` →
+  `executeOutputPlan()` (removal, backgrounds, compositing, saving) → `applyActorImages()` (the
+  prototype token, or the placed token for unlinked token actors). `handleGeneratedImage()` returns
+  `false` when the flow was abandoned or failed, and the dialog stays open in that case.
+- **`output-dialog.js`** — `RunwareOutputDialog`, the "Use this image" window (portrait and token
+  cards). It only builds an `OutputPlan`; `module.js` does the work through its `onApply` callback.
+  It renders **once** - every later change is DOM work, because a re-render would wipe edits and
+  previews. Its `assetCache` comes from `handleGeneratedImage()` (one per picked image, rings and
+  backgrounds shared between them), so retried Applies and "Back to images" never pay twice and
+  final images are saved once per identical plan (`saveOutputOnce()`).
+- **`asset-generation.js`** — the paid calls behind that window: `removeBackground()`,
+  `generateRing()`, `generateBackground()`, plus prompt templating (`fillTemplate()`) and
+  `summarizePaidCalls()` for the Apply label. Never notifies; callers report its errors.
+- **`image-compositor.js`** — pure canvas code (no Foundry/Runware imports): `compositeLayers()`,
+  `punchCircle()`, `loadBitmap()`. Only same-origin or data sources, so the canvas never taints.
+- **`token-ring.js`** — `getDynamicRingInfo()` (is a core dynamic ring available, and its label),
+  colour parsing and `subject.scale` clamping.
 - **`dialog.js`** — `RunwareImageDialog`, the generation form. Owns preset application, clamping
   every numeric parameter to `LIMITS`, and the actual `runware.requestImages()` call. One dialog
   per actor: its id comes from `getImageDialogId(actor)`, and `openImageGenerationDialog()` brings
@@ -52,30 +69,61 @@ Everything lives in `scripts/` (~1900 lines total):
 - **`preset-config.js`** — `RunwarePresetConfig`, the GM-only preset manager registered via
   `game.settings.registerMenu`. Presets are stored in the world setting `generationPresets`.
 - **`file-handler.js`** — `ImageFileHandler`, static-only class for base64 → Blob → FilePicker upload,
-  recursive directory creation, and filename numbering.
+  recursive directory creation, filename numbering, and `listRings()` for the custom-ring picker.
 
-`templates/*.hbs` pair with the two ApplicationV2 classes; `styles/module.css` styles both.
+`templates/*.hbs` pair with the three ApplicationV2 classes; `styles/module.css` styles all of them.
 
 ### Generation flow
 
 ```
 sheet button → openImageGenerationDialog() [module.js]
   → RunwareImageDialog.render() → _onGenerate() → _generateImage() [dialog.js]
-    → onImageGenerated callback → handleGeneratedImage() [module.js]
+    → onImageGenerated(images, { removeBackground, prompt, modelParams, portraitSize })
+    → handleGeneratedImage() [module.js]
       → showImageSelectionDialog() (only when >1 image)
-      → removeBackgroundFromImage() (optional for portrait)
-      → "Set as Actor Image?" consent (nothing is saved before this)
-      → saveImage() for the portrait / saveTokenImage() (removes background, or reuses the
-        already background-free portrait file)
-      → applyActorImages()
+      → RunwareOutputDialog.wait() [output-dialog.js] → 'applied' | 'back' (re-pick) | 'cancelled'
+          "Generate ring" button: the only paid call before Apply (kept in assetCache, saved on Apply)
+        → Apply → executeOutputPlan() [module.js]
+          → removeBackground() once for every output that needs the subject (cached)
+          → generateBackground() for portrait / token, or one shared (cached)
+          → compositeLayers() [image-compositor.js]
+          → saveImage(): ring, backgrounds, portrait, token
+          → applyActorImages()
 ```
+
+A throw from `executeOutputPlan()` keeps the output window open with the error; the window, not the
+executor, notifies. The Apply label lists the paid calls still to make (`summarizePaidCalls()`),
+which replaces the old "Set as Actor Image?" consent prompt. The generation form's "Remove
+Background" checkbox only preselects "Remove background" for the portrait. A generated ring is
+only saved on Apply, so Cancel after "Generate ring" discards that paid ring.
+
+### Token rings
+
+- **Dynamic ring**: the token file is set as both `texture.src` and `ring.subject.texture`, plus
+  `ring.enabled`, `ring.subject.scale`, `ring.colors.ring/background`. The ring **style** is the
+  world-wide `core.dynamicTokenRing` GM setting; the option is hidden when `CONFIG.Token.ring` has
+  no spritesheet. The core ring does **not** mask the subject, so a baked-in background is clipped
+  to `RING_INNER_RADIUS / subjectScale` or it would cover the ring.
+- **Custom ring**: generated, background-removed, centre punched (`punchCircle`), then **baked**
+  into a static `TOKEN_SIZE` PNG with `ring.enabled = false`. Registering it as a world ring was
+  rejected: ring styles are world-global and registration only happens at startup, needing a reload.
+- No ring / custom ring set `ring.enabled = false`, so "No ring" switches off an existing ring.
+- The world setting `core.prototypeTokenOverrides` can force ring settings per actor type and beats
+  our update. Documented in the dialog; don't fight it.
 
 ### Where images land
 
-`ImageFileHandler.saveImage()` writes to the Foundry **data** root, not the module folder:
+`ImageFileHandler.saveImage(actor, imageData, { type })` writes to the Foundry **data** root, not
+the module folder:
 
-- portrait: `images/runware/<slug>_<actorId>/image_N.png`
-- token: `images/runware/<slug>_<actorId>/tokens/token_N.png`
+- `avatar` (portrait): `images/runware/<slug>_<actorId>/image_N.png`
+- `token`: `images/runware/<slug>_<actorId>/tokens/token_N.png` (or the dynamic ring's subject texture)
+- `background`: `images/runware/<slug>_<actorId>/backgrounds/background_N.png` (raw, kept for reuse)
+- `ring`: `images/runware/rings/ring_N.png` — world-shared, `actor` is ignored; every actor's picker
+  lists them
+
+A transparent token with a "Remove background" portrait reuses the portrait file instead of
+uploading a duplicate.
 
 `ImageFileHandler.getActorFolderName()` builds the folder name: a transliterated slug plus the actor
 id, so actors with the same name no longer share a folder (before v1.0.0 it was the bare slug).
@@ -87,18 +135,18 @@ with a stale path; it was unused and was removed in v0.9.0.
 
 ## Foundry conventions to follow
 
-**ApplicationV2, not V1, for new UI.** Both app classes extend
+**ApplicationV2, not V1, for new UI.** All three app classes extend
 `foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2)`.
 Wire buttons by putting `data-action="name"` in the `.hbs` and mapping
 `name: ClassName.prototype._onName` in `static DEFAULT_OPTIONS.actions`. Handlers receive
 `(event, target)`.
 
-**No ApplicationV1 anywhere.** As of v0.9.0 the two popups in `module.js`
-(`showImageSelectionDialog` and the "Set as Actor Image?" prompt) use
+**No ApplicationV1 anywhere.** The image picker in `module.js` (`showImageSelectionDialog`) uses
 `foundry.applications.api.DialogV2`, reached through the `getDialogV2()` helper. There is no
 jQuery left in the module - don't reintroduce either. DialogV2 **rejects on dismissal by
-default**: both call sites pass `rejectClose: false` and normalise the resulting `null`, and any
-new dialog must do the same or an X-click becomes an unhandled rejection.
+default**: the call site passes `rejectClose: false` and normalises the resulting `null`, and any
+new dialog must do the same or an X-click becomes an unhandled rejection. `RunwareOutputDialog.wait()`
+resolves instead of rejecting, and blocks `close()` while Apply or a ring generation runs.
 
 **Template paths must be literal:** `` `modules/${MODULE_ID}/templates/image-dialog.hbs` ``.
 Foundry resolves these against the installed module directory, so the folder name in
@@ -121,11 +169,15 @@ The same defensive style (`foundry?.applications?.…` with fallbacks) is used t
 dynamic `import()` can't carry an SRI hash, so a floating range would run any new or hijacked
 upstream release unreviewed. Bump it deliberately, after testing. The `@runware/sdk-js` entry in
 `package.json` is a `peerDependency` for documentation only; it is not installed into the shipped
-module. Background removal uses model `runware:110@1`.
+module. Background removal uses the model in the `backgroundRemovalModel` world setting
+(`getBackgroundRemovalModel()`, default `bria:2@1`). The old `runware:110@1` was shut down by
+Runware on 2026-06-30.
 
 **Never trust the form's HTML `min`/`max`.** Generate is a `data-action` button, not a submit, so
 the browser never validates. Any new numeric request parameter must be clamped in
-`_generateImage()` against `LIMITS`, because every request costs money.
+`_generateImage()` against `LIMITS`, because every request costs money. Ring and background
+requests inherit the clamped `modelParams` and re-clamp them in `asset-generation.js`, with sizes
+through `clampDimension()`.
 
 ## Gotchas
 
@@ -138,14 +190,19 @@ the browser never validates. Any new numeric request parameter must be clamped i
   tag. Update `module.json`, `package.json`, `CHANGELOG.md`, and the changelog section in
   `README.md` together when releasing; `package.json`'s version is inert for Foundry but keep it
   in sync anyway to avoid confusion.
-- **`lang/en.json` is dead weight.** Nothing calls `game.i18n` anywhere — every user-facing string is
-  hardcoded in JS and `.hbs`. Its top-level key was corrected to `runware-imagegen` in v0.9.0, but
+- **`lang/en.json` is dead weight.** Every user-facing string is hardcoded in JS and `.hbs`; the
+  only `game.i18n` call localizes Foundry's own core ring label in `token-ring.js`. Its top-level key was corrected to `runware-imagegen` in v0.9.0, but
   the file still has no effect until someone migrates the hardcoded strings.
 - **API keys.** Stored in the world setting `apiKey`. Only a GM can edit it, but Foundry ships
   world settings to every client, so **any player can read it from the console** — this is
   documented in `SETUP.md`, don't describe it as GM-only. `.pre-commit-config.yaml` runs
   **gitleaks** — never commit a key, not even in a doc example or a test fixture.
-- **Settings are all `scope: 'world'`**, so they are GM-controlled and shared. `generationPresets`
+- **Settings are all `scope: 'world'`**, registered in `settings.js`, so they are GM-controlled and
+  shared. `backgroundRemovalModel` and the four prompt templates (`ringPromptTemplate`,
+  `ringNegativePromptTemplate`, `backgroundPromptTemplate`, `backgroundNegativePromptTemplate`;
+  placeholders `{material}`, `{scene}`, `{prompt}`) fall back to their `DEFAULT_*` constant when
+  blank. `{scene}` is deliberately a neutral default, not the character prompt, which would paint
+  the character into its own background. `generationPresets`
   is `config: false` and edited only through the preset menu; changes fire the custom hook
   `runware-imagegen.presetsUpdated`, which open dialogs listen for.
 - **`images/` is gitignored** — generated output must not be committed.

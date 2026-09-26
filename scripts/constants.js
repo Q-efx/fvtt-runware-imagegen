@@ -9,5 +9,40 @@ export const LIMITS = Object.freeze({
   numberResults: { min: 1, max: 4, fallback: 1 },
   steps: { min: 1, max: 150 },
   cfgScale: { min: 1, max: 30 },
-  weight: { min: -4, max: 4 }
+  weight: { min: -4, max: 4 },
+  // Foundry's dynamic ring `subject.scale` has min 0.5 and no max; the upper
+  // bound only keeps a typo from blowing the subject far past the token.
+  subjectScale: { min: 0.5, max: 3, step: 0.05, fallback: 1 }
 });
+
+// Composited token edge, in px.
+export const TOKEN_SIZE = 512;
+// Inner edge of a token ring as a fraction of the token's half-size. Foundry's
+// core rings (coreSteel, coreBronze) start their colour band at 0.666.
+export const RING_INNER_RADIUS = 2 / 3;
+// Edge of the subject's box in a custom-ring token, as a fraction of TOKEN_SIZE,
+// so the subject sits inside the ring instead of under it.
+export const CUSTOM_RING_SUBJECT_SCALE = 2 / 3;
+// A baked-in background is clipped at RING_INNER_RADIUS + this, so it slides
+// under the ring's opaque band instead of leaving a transparent seam.
+export const CUSTOM_RING_BACKGROUND_OVERLAP = 0.04;
+// Square edge requested for a generated ring. Always passed through
+// clampDimension() before it reaches Runware.
+export const RING_GENERATION_SIZE = 1024;
+// Generated rings are shared by every actor, so they live outside the
+// per-actor folders.
+export const RINGS_DIRECTORY = 'images/runware/rings';
+
+// Bria RMBG 2.0. The previous default, runware:110@1, was shut down by Runware
+// on 2026-06-30. GMs can switch it via the backgroundRemovalModel setting.
+export const DEFAULT_BACKGROUND_REMOVAL_MODEL = 'bria:2@1';
+
+// Prompt templates. {material}, {scene}, and {prompt} (the raw generation
+// prompt) are filled by fillTemplate() in asset-generation.js; GMs can override
+// each template in the module settings.
+export const DEFAULT_RING_MATERIAL = 'polished steel and gold filigree';
+export const DEFAULT_BACKGROUND_SCENE = 'misty fantasy forest at dusk';
+export const DEFAULT_RING_PROMPT_TEMPLATE = 'A single ornate circular token frame, perfectly round ring, centered, viewed straight on, flat 2D tabletop RPG token border, {material} with engraved details, uniform band thickness, band occupies only the outer sixth of the image, completely empty plain center, isolated on a plain solid flat white background, symmetrical, crisp clean edges, high detail, no character';
+export const DEFAULT_RING_NEGATIVE_PROMPT_TEMPLATE = 'character, person, face, creature, text, letters, numbers, watermark, perspective, tilted, 3d angle, oval, off-center, cropped, cut off, busy background, pattern in center, shadow, gradient background';
+export const DEFAULT_BACKGROUND_PROMPT_TEMPLATE = '{scene}, atmospheric environment backdrop for a character portrait, no people, no characters, soft depth of field, even lighting, painterly, centered composition';
+export const DEFAULT_BACKGROUND_NEGATIVE_PROMPT_TEMPLATE = 'people, person, character, face, figure, text, watermark, frame, border';

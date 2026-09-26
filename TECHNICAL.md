@@ -12,12 +12,14 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 - Compatible with FoundryVTT v13+
 
 #### 2. Main Module File (`scripts/module.js`)
-- **Initialization**: Registers module settings during the `init` hook
-- **Settings**: API key, default model, image dimensions, number of results
+- **Initialization**: Calls `registerSettings()` (see `scripts/settings.js`) during the `init` hook
 - **Hook Integration**: Adds the button to actor sheets via *two* hooks -
   `getActorSheetHeaderButtons` (AppV1 and custom sheets) and
   `getHeaderControlsApplicationV2` (AppV2 sheets). Both are required; systems ship a mix.
 - **Orchestration**: Coordinates between dialog, API, and file handler
+- **Output execution**: `executeOutputPlan()` turns the plan from the "Use this image" window into
+  files (subject removal, backgrounds, compositing, saving) and `applyActorImages()` writes the
+  portrait and token fields - to the prototype token, or to the placed token for unlinked actors
 
 #### 3. Image Generation Dialog (`scripts/dialog.js`)
 - **ApplicationV2**: Extends `HandlebarsApplicationMixin(ApplicationV2)`. (This was a
@@ -28,8 +30,11 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 - **State Management**: Manages loading states and prevents duplicate requests
 
 #### 4. File Handler (`scripts/file-handler.js`)
-- **Image Saving**: Converts base64 to Blob and uploads via FilePicker API
+- **Image Saving**: Converts base64 to Blob and uploads via FilePicker API. `saveImage()` takes a
+  `type`: `avatar`, `token`, `background` (per actor) or `ring` (world-shared)
 - **Directory Management**: Creates and manages actor-specific directories
+- **Ring Listing**: `listRings()` lists `images/runware/rings/` for the custom-ring picker (newest
+  first; a missing folder is just an empty list)
 - **File Numbering**: Auto-increments image numbers per actor
 - **Utilities**: Base64 conversion and file organization
 
@@ -44,6 +49,44 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 - **Form Fields**: All input fields for prompts, models, and parameters
 - **Dynamic Elements**: Model suggestions, advanced options toggle
 - **Accessibility**: Proper labels and hints for all inputs
+
+#### 7. Settings (`scripts/settings.js`)
+- **`registerSettings()`**: Every world setting and the preset manager menu, called from `init`
+- **Fallbacks**: A blank background-removal model or prompt template falls back to its `DEFAULT_*`
+  constant in `constants.js`
+
+#### 8. "Use this image" Window (`scripts/output-dialog.js`, `templates/output-dialog.hbs`)
+- **ApplicationV2**: `RunwareOutputDialog`, one per actor; `RunwareOutputDialog.wait()` resolves
+  `'applied'`, `'back'` (return to the image picker) or `'cancelled'`
+- **Portrait card**: Keep original / Remove background / Generate new background
+- **Token card**: No ring / Foundry dynamic ring / Custom ring (picker plus "Generate new ring…"),
+  and a token background: transparent, solid colour (dynamic ring only), or generated
+- **Renders once**: Visibility, the CSS preview and the Apply label are updated through the DOM, so
+  a re-render never wipes the user's edits or the generated ring preview
+- **Plan, not work**: `_readPlan()` builds an `OutputPlan`; the `onApply` callback from `module.js`
+  does the work. The dialog shows its errors and stays open. X, Escape and Cancel are blocked while
+  Apply or a ring generation is running
+
+#### 9. Asset Generation (`scripts/asset-generation.js`)
+- **Paid calls**: `removeBackground()`, `generateRing()`, `generateBackground()`. Ring and background
+  requests reuse the generation form's model, LoRA, VAE, embeddings, steps and CFG scale (not the
+  seed), re-clamped against `LIMITS`
+- **Prompt templates**: `fillTemplate()` fills `{material}`, `{scene}` and `{prompt}`; unknown
+  placeholders are left as-is so a typo stays visible
+- **Pricing**: `summarizePaidCalls()` counts the removals and background generations an Apply will
+  make, skipping cached results
+
+#### 10. Image Compositor (`scripts/image-compositor.js`)
+- **Pure canvas code**: `compositeLayers()` stacks layers (`cover` / `contain` / `stretch` fit,
+  scale, circular clip); `punchCircle()` cuts a ring's centre and everything outside it
+- **No tainted canvas**: base64 and data URIs are decoded locally, same-origin paths are fetched,
+  cross-origin URLs are refused
+- **Fallback**: `OffscreenCanvas` when available, otherwise a detached `<canvas>`
+
+#### 11. Token Ring Helpers (`scripts/token-ring.js`)
+- **`getDynamicRingInfo()`**: Whether the world has a core dynamic ring (`CONFIG.Token.ring`
+  spritesheet) and its label; the option is hidden if not
+- **Validation**: Hex colour parsing and subject-scale clamping (`LIMITS.subjectScale`)
 
 ## Data Flow
 
@@ -82,34 +125,96 @@ runware.requestImages() with parameters
 API returns base64 image data
 ```
 
-### 4. Image Saved and Applied
+### 4. Image Chosen, Built, and Applied
 ```
 Image data received
     ↓
 handleGeneratedImage() called
     ↓
-ImageFileHandler.saveImage() saves to disk
+User picks one image (DialogV2, only when >1)
     ↓
-Dialog confirms with user
+RunwareOutputDialog: portrait + token options (nothing paid or saved yet,
+except an explicit "Generate ring")
     ↓
-Actor.update() sets new portrait (if confirmed)
+Apply → executeOutputPlan()
+    ↓
+removeBackground() once, if any output needs the bare subject
+    ↓
+generateBackground() for the portrait and/or token (or one shared)
+    ↓
+compositeLayers() builds the portrait and token PNGs in the browser
+    ↓
+ImageFileHandler.saveImage(): ring, backgrounds, portrait, token
+    ↓
+applyActorImages() updates img and prototypeToken (or the placed token)
 ```
+
+Any failure keeps the window open with the error, and `handleGeneratedImage()` returns `false`
+when the user cancels, so the generation dialog keeps its prompt.
+
+### 5. How Each Output Is Built
+
+Composited tokens are `TOKEN_SIZE` (512px) squares. Transparent tokens without a baked-in
+background or custom ring are the removed subject at its native size.
+
+| Output | Layers (bottom → top) | Document fields |
+| --- | --- | --- |
+| Portrait, keep | original | `img` |
+| Portrait, remove | subject | `img` |
+| Portrait, new background | background (cover) → subject, at the original's size | `img` |
+| Token, no ring | [background clipped to a circle] → subject | `texture.src`, `ring.enabled=false` |
+| Token, dynamic ring | [background clipped to `RING_INNER_RADIUS / subjectScale`] → subject | `texture.src` and `ring.subject.texture` = the file, `ring.enabled=true`, `ring.subject.scale`, `ring.colors.ring/background` |
+| Token, custom ring | [background clipped to `RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP`] → subject in the inner ⅔ (`CUSTOM_RING_SUBJECT_SCALE`) → ring (stretch) | `texture.src`, `ring.enabled=false` |
+
+- **The dynamic ring doesn't mask the subject**: Foundry draws the subject texture over the ring,
+  so a baked-in background has to stop at the ring's inner edge. `subject.scale` scales the ring
+  relative to the texture, hence the division.
+- **Custom rings are baked**: the dynamic ring style (`core.dynamicTokenRing`) is one world-wide
+  spritesheet, and registering new ones only works at startup and needs a reload. A per-actor ring
+  is therefore composited into a static image with the dynamic ring off.
+- **Generated rings** are 1024x1024 (`RING_GENERATION_SIZE`), background-removed, and punched with
+  `punchCircle(RING_INNER_RADIUS, { outerRadius: 1 })`, because removal often keeps the centre.
+- A transparent token with a "Remove background" portrait reuses the portrait file.
+- `core.prototypeTokenOverrides` can force ring settings per actor type and beats this update.
+
+### 6. Caching Paid Results
+
+Each output window gets an `assetCache` (`Map`) of `{ imageData, savedPath }` entries from
+`handleGeneratedImage()`, which keeps one cache per picked image for as long as that generation's
+flow runs (Cancel ends it):
+
+- `subject`: the background-removed subject, shared by portrait and token (at most one removal per
+  picked image)
+- `background:<width>x<height>:<prompt>…`: each generated background, keyed by size and prompts, so
+  identical portrait and token requests are paid once
+- `ring:<n>`: the last generated ring (regenerating replaces it)
+- `output:portrait:…` / `output:token:…`: the saved path of a final image for an identical plan
+
+Rings and backgrounds are shared between the caches of all picked images, so **Back to images** and
+picking again never pays for them twice. If Apply fails (for example a failed upload or actor
+update), pressing it again reuses the cached images, and `savedPath` stops a ring, background,
+portrait or token from being uploaded twice. The Apply label is recomputed from the cache, so it
+only lists calls that are still to be paid.
 
 ## Key Technologies
 
 ### FoundryVTT APIs Used
-- **Hooks System**: `init`, `ready`, `getActorSheetHeaderButtons`
-- **ApplicationV2**: Extended for the dialog and the preset manager
+- **Hooks System**: `init`, `ready`, `getActorSheetHeaderButtons`, `getHeaderControlsApplicationV2`
+- **ApplicationV2**: Extended for the generation dialog, the "Use this image" window, and the preset manager
 - **FilePicker API**: For directory creation and file uploads
 - **Settings API**: For module configuration
-- **DialogV2 API**: For the confirmation prompt and the multi-image picker.
-  The deprecated ApplicationV1 `Dialog` class was removed in v0.9.0.
+- **DialogV2 API**: For the multi-image picker. The deprecated ApplicationV1 `Dialog` class was
+  removed in v0.9.0.
+- **Dynamic Token Rings**: `CONFIG.Token.ring` and the `core.dynamicTokenRing` setting are read,
+  never changed; `prototypeToken.ring.*` is written
 - **Notifications**: For user feedback
 
 ### Runware SDK
 - **Dynamic Import**: Loaded from CDN via ES modules
 - **Async Initialization**: `Runware.initialize()` with API key
-- **Image Generation**: `runware.requestImages()` method
+- **Image Generation**: `runware.requestImages()` method (portraits, rings, backgrounds)
+- **Background Removal**: `runware.removeImageBackground()` with the `backgroundRemovalModel`
+  setting (default `bria:2@1`)
 - **Parameters**: Supports prompts, models, LoRA, CFG, steps, seed, etc.
 - **Output**: Base64 image data for local storage
 
@@ -119,6 +224,7 @@ Actor.update() sets new portrait (if confirmed)
 - **FormData API**: For form data extraction
 - **Blob API**: For image data conversion
 - **File API**: For creating file objects
+- **Canvas**: `OffscreenCanvas` (or `<canvas>`) and `createImageBitmap` for compositing
 
 ## Configuration Options
 
@@ -129,7 +235,15 @@ game.settings.register(MODULE_ID, 'defaultModel', {...})  // Optional
 game.settings.register(MODULE_ID, 'imageWidth', {...})    // Optional
 game.settings.register(MODULE_ID, 'imageHeight', {...})   // Optional
 game.settings.register(MODULE_ID, 'numberResults', {...}) // Optional
+game.settings.register(MODULE_ID, 'backgroundRemovalModel', {...})           // Optional, default bria:2@1
+game.settings.register(MODULE_ID, 'ringPromptTemplate', {...})               // Optional
+game.settings.register(MODULE_ID, 'ringNegativePromptTemplate', {...})       // Optional
+game.settings.register(MODULE_ID, 'backgroundPromptTemplate', {...})         // Optional
+game.settings.register(MODULE_ID, 'backgroundNegativePromptTemplate', {...}) // Optional
 ```
+
+All are registered by `registerSettings()` in `scripts/settings.js`. A blank model or template
+restores its default. Templates support `{material}`, `{scene}` and `{prompt}`.
 
 ### Generation Parameters
 - **Required**: Positive prompt, model
@@ -153,14 +267,23 @@ runware-imagegen/
 ├── .gitignore             # Git ignore rules
 ├── scripts/
 │   ├── module.js          # Main module entry point
+│   ├── settings.js        # Module settings
 │   ├── dialog.js          # Image generation dialog
+│   ├── output-dialog.js   # "Use this image" window
+│   ├── asset-generation.js # Background removal, rings, backgrounds
+│   ├── image-compositor.js # Canvas compositing
+│   ├── token-ring.js      # Dynamic ring helpers
 │   ├── preset-config.js   # GM-only preset manager
 │   ├── file-handler.js    # File operations
-│   └── constants.js       # MODULE_ID / MODULE_NAME
+│   ├── runware-client.js  # Shared Runware SDK client
+│   ├── runware-connection.js # Fast API-key check
+│   ├── runware-errors.js  # Error normalisation
+│   └── constants.js       # MODULE_ID, LIMITS, token geometry, defaults
 ├── styles/
 │   └── module.css         # Module styles
 ├── templates/
 │   ├── image-dialog.hbs   # Dialog template
+│   ├── output-dialog.hbs  # "Use this image" template
 │   └── preset-config.hbs  # Preset manager template
 ├── lang/
 │   └── en.json           # Unused; every string is hardcoded in JS/HBS
@@ -172,10 +295,14 @@ Generated images are auto-created separately in the Foundry data root:
 Data/
 └── images/
     └── runware/
-        └── [actor-name]_[actor-id]/
-            ├── image_N.png
-            └── tokens/
-                └── token_N.png
+        ├── [actor-name]_[actor-id]/
+        │   ├── image_N.png
+        │   ├── tokens/
+        │   │   └── token_N.png
+        │   └── backgrounds/
+        │       └── background_N.png
+        └── rings/
+            └── ring_N.png      # shared by every actor
 ```
 
 ## Security Considerations
@@ -197,6 +324,8 @@ Data/
 3. **Sequential Numbering**: Efficient file naming without conflicts
 4. **Async Operations**: Non-blocking UI during generation
 5. **State Management**: Prevents multiple simultaneous requests
+6. **Paid-Result Cache**: A retried Apply, or a new pick after Back to images, reuses what was already paid for
+7. **Local Compositing**: Backgrounds and rings are combined on a canvas, not with extra paid calls
 
 ## Extensibility
 
@@ -229,6 +358,13 @@ Other modules could potentially hook into:
 - [ ] Advanced parameters (steps, CFG, seed) work
 - [ ] Multiple images generate correctly
 - [ ] Negative prompts are applied
+
+### "Use this image"
+- [ ] Every portrait option and every ring / token background combination
+- [ ] Linked actor (prototype token) and unlinked token (placed token)
+- [ ] A world or system without dynamic rings hides that option
+- [ ] Cancel / X / Back at every stage save nothing; Apply after a failure doesn't pay twice
+- [ ] Generated ring has a fully transparent centre; backgrounds never bleed outside the ring
 
 ### Error Handling
 - [ ] Invalid API key shows error
@@ -306,12 +442,11 @@ const filename = `custom_name_${imageNumber}.png`;
 2. **Batch Generation**: Generate for multiple actors at once
 3. **Image Variants**: Generate variations of existing images
 4. **Prompt Templates**: Save and reuse prompt templates
-5. **Token Integration**: Apply to token images, not just portraits
-6. **Image Editing**: Inpainting, upscaling, background removal
-7. **Style Presets**: Predefined style configurations
-8. **Gallery View**: Visual browser for all generated images
-9. **Import/Export**: Share prompts and settings
-10. **Automatic Prompts**: Generate prompts from actor stats/traits
+5. **Image Editing**: Inpainting, upscaling
+6. **Style Presets**: Predefined style configurations
+7. **Gallery View**: Visual browser for all generated images
+8. **Import/Export**: Share prompts and settings
+9. **Automatic Prompts**: Generate prompts from actor stats/traits
 
 ## Resources
 

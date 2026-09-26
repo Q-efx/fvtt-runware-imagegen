@@ -8,6 +8,7 @@ import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
 import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
 import { getRunwareClient } from './runware-client.js';
+import { extractModelParams } from './asset-generation.js';
 
 /**
  * Parse a form value as a finite number, or return null for blank/invalid input.
@@ -227,15 +228,20 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       ui.notifications.info(`${MODULE_NAME}: Generating image...`);
 
       // Generate the image using Runware SDK
-      const imageData = await this._generateImage(formData);
+      const { images, requestParams } = await this._generateImage(formData);
 
       // Call the callback with the generated image. It resolves `false` when
       // the flow didn't finish (picker cancelled, save failed, ...); keep the
       // dialog and the user's prompt in that case instead of closing on them.
+      // The already-clamped request is handed on so rings and backgrounds are
+      // generated with the same model settings without re-reading the form.
       let completed = true;
-      if (this.onImageGenerated && imageData) {
-        completed = (await this.onImageGenerated(imageData, {
-          removeBackground: !!formData.removeBackground
+      if (this.onImageGenerated && images) {
+        completed = (await this.onImageGenerated(images, {
+          removeBackground: !!formData.removeBackground,
+          prompt: formData.prompt,
+          modelParams: extractModelParams(requestParams),
+          portraitSize: { width: requestParams.width, height: requestParams.height }
         })) !== false;
       }
 
@@ -552,6 +558,17 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     this._presetsHookId = Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
   }
 
+  /**
+   * Ignore Escape while a generation (and the "Use this image" step that
+   * follows it) is in progress. Escape dismisses every open window, so it
+   * would otherwise throw away the prompt the output step promises to keep
+   * when the user cancels there. The X button still closes the dialog.
+   */
+  async close(options = {}) {
+    if (this.isGenerating && options?.closeKey) return this;
+    return super.close(options);
+  }
+
   _onClose(options) {
     super._onClose(options);
     if (this._presetsHookId !== null) {
@@ -567,7 +584,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   /**
    * Generate an image using the Runware SDK
    * @param {Object} formData - The form data
-   * @returns {Promise<Object>} The generated image data
+   * @returns {Promise<{ images: Object[], requestParams: Object }>} The generated
+   *   images and the clamped request that produced them
    */
   async _generateImage(formData) {
     // Read the key now rather than when the dialog opened, so a key the GM
@@ -654,7 +672,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     }
 
     // Return all generated images
-    return images;
+    return { images, requestParams };
   }
 
   async _onSubmit(event, form, formData) {
