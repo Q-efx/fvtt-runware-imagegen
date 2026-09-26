@@ -13,7 +13,7 @@
 3. Enter a prompt (e.g., "a brave knight in shining armor")
 4. Click "Generate Image" and wait
 
-**That's it!** The image will be saved and you can set it as the actor's portrait.
+**That's it!** Pick an image, then in the **Use this image** window choose the portrait background and the token's ring and background, and click **Apply**. Nothing is saved or paid for until then.
 
 ---
 
@@ -23,11 +23,17 @@
 Start reading here: `scripts/module.js`
 
 ### Key Files
-- `scripts/module.js` - Initialization, hooks, settings, post-generation flow
+- `scripts/module.js` - Initialization, hooks, post-generation flow (`executeOutputPlan()`)
+- `scripts/settings.js` - All module settings (`registerSettings()`)
 - `scripts/dialog.js` - Form dialog for image generation
+- `scripts/output-dialog.js` - "Use this image" window (portrait and token options)
+- `scripts/asset-generation.js` - Background removal, ring and background generation
+- `scripts/image-compositor.js` - Canvas compositing (layers, circular clips)
+- `scripts/token-ring.js` - Foundry dynamic ring helpers
 - `scripts/preset-config.js` - GM-only preset manager
 - `scripts/file-handler.js` - File operations
 - `templates/image-dialog.hbs` - Dialog HTML template
+- `templates/output-dialog.hbs` - "Use this image" template
 - `templates/preset-config.hbs` - Preset manager template
 - `styles/module.css` - Styling
 
@@ -35,8 +41,9 @@ Start reading here: `scripts/module.js`
 ```
 User clicks button → Dialog opens → Form submitted →
 Runware API called → Image(s) received → User picks one (if >1) →
-Optional background removal → File saved →
-User chooses portrait / token / both / neither → Actor updated
+"Use this image": portrait background + token ring/background chosen →
+Apply → background removal / background generation (paid) →
+Layers composited in the browser → Files saved → Actor updated
 ```
 
 ### Testing Locally
@@ -49,13 +56,13 @@ User chooses portrait / token / both / neither → Actor updated
 - FoundryVTT: `ApplicationV2`, `DialogV2`, `FilePicker`, `Hooks`, `Settings`
 - Runware: Loaded from `https://cdn.jsdelivr.net/npm/@runware/sdk-js@1.3.2/+esm (pinned in `scripts/runware-client.js`)`
   (pinned to major v1; `@latest` risked an upstream release breaking the module)
-- Web: `FormData`, `Blob`, `File`, ES6 modules
+- Web: `FormData`, `Blob`, `File`, `OffscreenCanvas` / `createImageBitmap`, ES6 modules
 
 ### Customization Points
 - Model suggestions: `dialog.js` → `getData()`
 - Button position: `module.js` → `getActorSheetHeaderButtons` hook
 - Image naming: `file-handler.js` → `saveImage()`
-- Default settings: `module.js` → `init` hook
+- Default settings: `settings.js` → `registerSettings()`
 
 ### Common Tasks
 
@@ -70,7 +77,7 @@ modelSuggestions: [
 
 **Change default image size:**
 ```javascript
-// In module.js, init hook
+// In settings.js, registerSettings()
 game.settings.register(MODULE_ID, 'imageWidth', {
   default: 768, // Change this
 });
@@ -144,12 +151,19 @@ runware-imagegen/
 ├── 📜 LICENSE             # MIT
 ├── scripts/
 │   ├── module.js          # Entry point ⭐
+│   ├── settings.js        # Module settings
 │   ├── dialog.js          # Dialog UI ⭐
+│   ├── output-dialog.js   # "Use this image" window ⭐
+│   ├── asset-generation.js # Removal, rings, backgrounds
+│   ├── image-compositor.js # Canvas compositing
+│   ├── token-ring.js      # Dynamic ring helpers
 │   ├── preset-config.js   # Preset manager
 │   ├── file-handler.js    # File ops ⭐
-│   └── constants.js       # Module id/name
+│   ├── runware-client.js  # Shared Runware SDK client
+│   └── constants.js       # Module id/name, limits, token geometry
 ├── templates/
 │   ├── image-dialog.hbs   # Template ⭐
+│   ├── output-dialog.hbs  # "Use this image" template
 │   └── preset-config.hbs  # Preset template
 ├── styles/
 │   └── module.css         # Styles
@@ -174,6 +188,7 @@ Generated images are stored separately in `Data/images/runware/[actor-name]_[act
 - Each generation costs Runware credits
 - Check your balance at https://runware.ai
 - Smaller images = lower cost
+- Background removals, generated backgrounds, and "Generate ring" are paid too - the Apply button lists what it will charge
 
 ### Quality
 - Be specific in prompts

@@ -6,16 +6,19 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 
 - 🎨 **Easy Access**: Generate images directly from actor sheets with a button in the header bar (next to the prototype token button)
 - 🤖 **Multiple AI Models**: Support for various AI models including Stable Diffusion, SDXL, and custom models from CivitAI
-- 🧰 **GM Presets**: Game Masters can curate shared presets (model, LoRA, VAE, embeddings) for players to apply instantly
+- 🧰 **GM Presets**: Game Masters can curate shared presets (model, dimensions, steps, CFG scale, LoRA, VAE, embeddings) for players to apply instantly
 - 🎯 **Advanced Controls**:
   - Positive and negative prompts
   - Adjustable image dimensions (256x256 to 2048x2048)
   - LoRA model support for style adaptation
   - CFG Scale, inference steps, and seed control
   - Generate multiple images at once (1-4) with an in-app gallery to pick your favorite result
-- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/<actor-name>_<actor-id>/` in the Foundry data directory (tokens live in the `/tokens` subfolder)
-- 🖼️ **Quick Application**: Instantly apply the chosen render as the actor portrait, with multi-image preview selection when multiple results are generated
-- 🪄 **Token Ready**: On request, the background is removed via Runware RMBG v2.0 and the result is saved as the token image
+- 💾 **Organized Storage**: Portraits and token variants are automatically saved to `images/runware/<actor-name>_<actor-id>/` in the Foundry data directory (tokens live in the `/tokens` subfolder, generated backgrounds in `/backgrounds`); generated rings are shared by the whole world in `images/runware/rings/`
+- 🖼️ **Use This Image**: After picking a result, choose separately what the portrait and the token should be, with a live preview - nothing is paid for or saved until you press Apply, unless you explicitly generate a ring or preview a background
+- 🪄 **Token Ready**: The token always gets a background-free subject (Bria RMBG 2.0 by default), with:
+  - No ring, Foundry's dynamic token ring (ring colour, background colour, subject scale), or a custom AI-generated ring baked into the token image
+  - A transparent, solid-colour, or AI-generated background kept inside the ring
+  - Portraits can keep their background, have it removed, or get a newly generated one
 - 🔐 **API key in world settings**: only the GM can change it, but every connected player can read it - see [SETUP.md](SETUP.md)
 
 ## Installation
@@ -49,6 +52,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
    - **Image Width**: Default width for generated images (512px recommended)
    - **Image Height**: Default height for generated images (512px recommended)
    - **Number of Results**: How many images to generate per request (1-4)
+   - **Background Removal Model** and the **ring / background prompt templates** - see [SETUP.md](SETUP.md)
 
 ## Usage
 
@@ -61,8 +65,33 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 4. **Select a Model**: Choose from the suggested models or enter a custom model ID
 5. **Click "Generate Image"**
 6. **Wait for Generation**: The module will display a loading indicator
-7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite; the selected image is then shown in a confirmation dialog
-8. **Confirm or Save**: The chosen portrait is stored in `images/runware/[actor-name]_[actor-id]/` in the Foundry data directory, and, if you choose to use it for the token, a background-free copy is saved in `images/runware/[actor-name]_[actor-id]/tokens/`.
+7. **Review the Results**: If multiple images were requested, a gallery lets you preview and choose your favorite
+8. **Use this image**: A window opens with a preview and two cards, **Set as portrait** and **Set as token** (see below). Untick either one to leave it unchanged
+9. **Click Apply**: The button lists the paid calls it will make, e.g. *Apply (1 background removal, 1 background generation)*. The images are then built, saved, and applied to the actor. **Back to images** returns to the gallery; **Cancel** (or closing the window) saves nothing and keeps the generation dialog open with your prompt
+
+### Portrait and Token Options
+
+**Portrait - Background**
+- **Keep original**: the image exactly as generated
+- **Remove background**: preselected when **Remove Background** is ticked in the generation form
+- **Generate new background**: the character is cut out and placed on a newly generated background (the prompt is prefilled and editable)
+
+**Token** - the background is always removed from the token's character.
+- **Ring**
+  - **No ring**: just the transparent character
+  - **Foundry dynamic ring** (only offered if your system has dynamic rings): set a ring colour, background colour, and subject scale. The ring *style* is a world-wide Foundry setting chosen by the GM
+  - **Custom ring**: pick a ring that anyone in this world generated before, or choose **Generate new ring…**, edit the prompt, and click **Generate ring** (paid: one image plus one background removal; you can regenerate before applying). The ring is baked into the token image, and Foundry's dynamic ring is turned off for this token
+- **Token background**: **Transparent** (called **Ring default** under a dynamic ring), **Solid colour** (dynamic ring only), or **Generate background**, which is clipped to a circle inside the ring. If the portrait also gets a new background, the token can reuse it for free
+- **Keep the character inside the ring** (on by default, with a ring): cuts off whatever reaches past the ring. Untick it to let the character break out of the frame
+- **Position and zoom**: drag the character in the token preview to move it, and use the mouse wheel to zoom (around the cursor). Double-click the preview or press the reset button to centre it again. The framing is baked into the token image on Apply
+
+**Preview background**: under each background prompt, **Preview background** generates the background now so you can see it in the preview before applying (paid: one image, plus the character's background removal the first time - Apply needs that removal anyway). Apply reuses the previewed background instead of paying again. Click **Regenerate background** for another one. If you edit the prompt or the model afterwards, the old preview stays visible but dimmed and marked *outdated*, and Apply generates a new background; change it back and the preview is used again. Like a generated ring, a previewed background is only saved on Apply - **Back to images** keeps it, **Cancel** discards it.
+
+**Model for rings & backgrounds** (top of the window): **Same as generation** uses the model and settings from the generation form; or pick one of the GM's presets (its model, LoRA, VAE, embeddings, steps and CFG scale). A preset's LoRA trigger word is not added to the ring and background prompts automatically - add it yourself if you want it. GMs can open the preset manager from the button next to the list; saved changes show up in an open window right away.
+
+If Apply fails, press it again: results you already paid for are reused, also after **Back to images**.
+
+> A GM's **Prototype Token Overrides** (core setting) can force ring settings per actor type and win over these choices.
 
 ### Advanced Options
 
@@ -108,24 +137,31 @@ Data/
   images/
     runware/
       warrior_character/
-        image_1.png
-        image_2.png
-        image_3.png
+        image_1.webp
+        image_2.webp
+        image_3.webp
         tokens/
-          token_1.png
+          token_1.webp
+        backgrounds/
+          background_1.webp
       npc_shopkeeper/
-        image_1.png
-        image_2.png
+        image_1.webp
+        image_2.webp
         tokens/
-          token_1.png
+          token_1.webp
+      rings/
+        ring_1.webp
 ```
 
+- Everything is saved as WebP. Images saved as PNG by earlier versions stay where they are, and
+  numbering continues after them.
 - Actor names are sanitized (special characters replaced with underscores)
 - Images are numbered sequentially
 - Images persist across sessions
 - Images are kept outside the module directory, so updating or uninstalling the module does not remove them
 - You can access these files directly via the FilePicker
-- Background-removed token images are stored alongside portraits under the `tokens/` subdirectory
+- Token images are stored alongside portraits under the `tokens/` subdirectory, and generated backgrounds under `backgrounds/` so they can be reused
+- Generated rings go to the shared `rings/` folder, so every actor's **Custom ring** picker can offer them
 
 ## Prompt Tips
 
@@ -171,6 +207,9 @@ You can emphasize parts of your prompt:
 - Try a different model from the suggestions
 - Check browser console for detailed error messages
 
+### "Background removal failed"
+**Solution**: The token and the "Remove / Generate new background" options need a working background-removal model. The window stays open so you can retry; check the **Background Removal Model** setting (clear it to restore the default `bria:2@1`) and your Runware balance.
+
 ### Images not saving
 **Possible causes**:
 - Insufficient permissions on the Data directory
@@ -202,7 +241,7 @@ This module uses the [Runware SDK](https://github.com/runware/sdk-js) to communi
 - **Multiple Models**: Support for Runware and CivitAI models
 - **LoRA Support**: Style adaptation via LoRA models
 - **Advanced Parameters**: CFG Scale, steps, seed control
-- **Background Removal**: Automated RMBG v2.0 workflow to create transparent token assets
+- **Background Removal**: Bria RMBG 2.0 (`bria:2@1`) by default, configurable, for transparent tokens, custom rings, and new backgrounds
 
 ## Credits
 
@@ -223,6 +262,14 @@ For issues, feature requests, or questions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Version 1.1.0
+- New "Use this image" window replaces the "Set as Actor Image?" prompt: configure portrait and token separately, with a preview, and see the paid calls before Apply
+- Portraits can keep, remove, or replace their background with a generated one
+- Tokens: Foundry dynamic ring (colours, subject scale), AI-generated custom rings shared across the world, and transparent, solid-colour or generated backgrounds
+- Rings and backgrounds can be generated with any GM preset instead of the generation's own model
+- Preview a generated background (portrait or token) before applying; Apply reuses it instead of paying again
+- Background removal now uses Bria RMBG 2.0 (`bria:2@1`) - Runware shut down the old model - and is configurable, along with the ring and background prompt templates
 
 ### Version 1.0.1
 - Fixed the release workflow: a release whose files didn't match its tag was published without `module.json`/`module.zip`, breaking installs and updates

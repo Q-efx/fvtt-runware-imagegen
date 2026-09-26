@@ -415,3 +415,541 @@
     width: 100%;
   }
 }
+
+/* ==========================================================================
+ * "Use this image" output dialog (scripts/output-dialog.js,
+ * templates/output-dialog.hbs). Everything below is scoped to
+ * .runware-output-dialog and reuses the shared .runware-form-section,
+ * .runware-form-group, .runware-actions and .generate-button rules above.
+ * ========================================================================== */
+
+.runware-output-dialog .window-content {
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+}
+
+/*
+ * The dialog renders once and shows/hides sections with the `hidden`
+ * attribute. Several of those elements carry a class with its own `display`
+ * (e.g. .runware-form-group is flex), which beats the browser's [hidden]
+ * rule, so restate it here.
+ */
+.runware-output-dialog [hidden] {
+  display: none !important;
+}
+
+.runware-output-dialog .runware-output-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Wraps every input so Apply can disable them all at once; no visual box. */
+.runware-output-dialog .runware-output-fields {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.runware-output-dialog .runware-output-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+/* Preview column */
+.runware-output-dialog .runware-output-preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.runware-output-dialog .runware-preview-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.runware-output-dialog .runware-preview-block h4 {
+  align-self: stretch;
+  margin: 0;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--color-border-dark-tertiary);
+  font-size: 0.95em;
+  font-weight: bold;
+  text-align: left;
+  color: var(--color-text-dark-primary);
+}
+
+.runware-output-dialog .runware-preview-block small,
+.runware-output-dialog .runware-preview-note,
+.runware-output-dialog .runware-output-note {
+  color: var(--color-text-dark-secondary);
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+/* Checkerboard behind anything that may be transparent */
+.runware-output-dialog .runware-portrait-preview,
+.runware-output-dialog .runware-token-preview,
+.runware-output-dialog .runware-ring-thumb,
+.runware-output-dialog .runware-generated-ring {
+  background: repeating-conic-gradient(#8a8a8a 0% 25%, #b8b8b8 0% 50%) 50% / 16px 16px;
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.runware-output-dialog .runware-portrait-preview {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/*
+ * A previewed background is painted by the portrait <img> itself, cover-fit
+ * behind the subject over the image's own box - the compositor's layers at
+ * the original's size. output-dialog.js sets --runware-preview-bg.
+ */
+.runware-output-dialog .runware-portrait-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border: none;
+  background: var(--runware-preview-bg, none) center / cover no-repeat;
+}
+
+/* An outdated background preview (prompt or model changed): dimmed and badged. */
+.runware-output-dialog .runware-portrait-preview[data-stale] img {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), var(--runware-preview-bg, none);
+}
+
+.runware-output-dialog .runware-portrait-preview[data-stale]::after,
+.runware-output-dialog .runware-token-preview[data-stale]::after {
+  content: "outdated";
+  position: absolute;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  font-size: 0.75em;
+  pointer-events: none;
+}
+
+.runware-output-dialog .runware-portrait-preview[data-stale]::after {
+  top: 0.35rem;
+  right: 0.35rem;
+}
+
+/* Low enough to stay clear of the face, high enough to stay inside a custom ring's circle. */
+.runware-output-dialog .runware-token-preview[data-stale]::after {
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/*
+ * Token preview: an approximation in CSS. Layers stack bottom to top in DOM
+ * order (background, subject, dynamic ring band, custom ring image), all
+ * centred. The sizes mirror constants.js: the ring's inner edge sits at 2/3
+ * of the token, the core ring's outer edge at about 0.79.
+ */
+.runware-output-dialog .runware-token-preview {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  container-type: size;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* The custom ring token is clipped to its circle, like the baked image. */
+.runware-output-dialog .runware-token-preview[data-ring="custom"] {
+  border-radius: 50%;
+}
+
+.runware-output-dialog .runware-token-preview.dragging {
+  cursor: grabbing;
+}
+
+/* Layers never take the pointer: the preview box itself handles drag and wheel. */
+.runware-output-dialog .runware-token-preview > * {
+  pointer-events: none;
+}
+
+.runware-output-dialog fieldset:disabled .runware-token-preview {
+  cursor: default;
+}
+
+.runware-output-dialog .runware-token-framing {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.runware-output-dialog .runware-token-framing-zoom {
+  min-width: 3em;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-dark-secondary);
+}
+
+.runware-output-dialog .runware-token-framing button {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.runware-output-dialog .runware-token-preview > * {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border: none;
+}
+
+.runware-output-dialog .runware-token-preview .token-bg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background-color: #3a3a3a;
+}
+
+/*
+ * A previewed background covers the whole token (scaled by the dynamic ring's
+ * subject scale from JS), and the layer's circle clips it, like the
+ * compositor's clipCircle. cqw/cqh are the token preview's edge.
+ */
+.runware-output-dialog .runware-token-preview .token-bg-image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100cqw;
+  height: 100cqh;
+  max-width: none;
+  object-fit: cover;
+  border: none;
+  transform: translate(-50%, -50%);
+}
+
+.runware-output-dialog .runware-token-preview[data-stale] .token-bg-image {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+
+.runware-output-dialog .runware-token-preview[data-ring="dynamic"] .token-bg {
+  width: 66.7%;
+  height: 66.7%;
+}
+
+.runware-output-dialog .runware-token-preview[data-ring="custom"] .token-bg {
+  width: 70.7%;
+  height: 70.7%;
+}
+
+.runware-output-dialog .runware-token-preview[data-background="generate"] .token-bg {
+  background: repeating-linear-gradient(45deg, rgba(60, 110, 170, 0.85) 0 6px, rgba(40, 80, 130, 0.85) 6px 12px);
+}
+
+.runware-output-dialog .runware-token-preview .token-bg span {
+  display: none;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  font-size: 0.75em;
+}
+
+.runware-output-dialog .runware-token-preview[data-background="generate"] .token-bg span {
+  display: block;
+}
+
+.runware-output-dialog .runware-token-preview .token-subject-clip > img {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border: none;
+}
+
+.runware-output-dialog .runware-token-preview .token-subject {
+  object-fit: contain;
+  transform-origin: center;
+}
+
+.runware-output-dialog .runware-token-preview[data-ring="custom"] .token-subject {
+  width: 66.7%;
+  height: 66.7%;
+}
+
+/* Dynamic ring band from 2/3 to ~0.79 of the token; colour set from JS. */
+.runware-output-dialog .runware-token-preview .token-ring {
+  width: 79%;
+  height: 79%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    transparent 84%,
+    var(--runware-ring-color, #8a8f98) 84.5%,
+    var(--runware-ring-color, #8a8f98) 100%,
+    transparent 100%
+  );
+}
+
+.runware-output-dialog .runware-token-preview .token-ring-image {
+  object-fit: fill;
+}
+
+/* Output cards */
+.runware-output-dialog .runware-output-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* Model for rings & backgrounds: a preset select plus the GM's manage button */
+.runware-output-dialog .runware-output-model {
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.runware-output-dialog .runware-output-model-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.runware-output-dialog .runware-output-model-controls select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.runware-output-dialog .runware-output-model-controls button {
+  flex: none;
+  width: auto;
+  padding: 0 0.6rem;
+}
+
+.runware-output-dialog .runware-output-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.runware-output-dialog .runware-output-body,
+.runware-output-dialog .runware-output-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* .runware-form-group input pads every input; radios and checkboxes stay native. */
+.runware-output-dialog input[type="checkbox"],
+.runware-output-dialog input[type="radio"] {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.runware-output-dialog .runware-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.runware-output-dialog .runware-radio-group legend {
+  margin-bottom: 0.35rem;
+  padding: 0;
+  font-size: 0.9em;
+  font-weight: bold;
+  color: var(--color-text-dark-primary);
+}
+
+.runware-output-dialog .runware-radio-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+}
+
+.runware-output-dialog .runware-radio,
+.runware-output-dialog .runware-form-group .runware-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9em;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+/* Colour: a text input (source of truth, blank = default) plus a swatch helper */
+.runware-output-dialog .runware-color-input {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.runware-output-dialog .runware-color-input input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.runware-output-dialog .runware-color-input input[type="color"] {
+  flex: none;
+  width: 2.5rem;
+  height: auto;
+  min-height: 2rem;
+  padding: 2px;
+  cursor: pointer;
+}
+
+/* Custom ring picker: 72px tiles, the radio itself is visually hidden */
+.runware-output-dialog .runware-ring-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 72px);
+  gap: 0.5rem;
+}
+
+.runware-output-dialog .runware-ring-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  width: 72px;
+  cursor: pointer;
+}
+
+.runware-output-dialog .runware-ring-tile input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.runware-output-dialog .runware-ring-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  box-sizing: border-box;
+}
+
+.runware-output-dialog .runware-ring-tile-new .runware-ring-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 1.5em;
+  color: var(--color-text-dark-primary);
+}
+
+.runware-output-dialog .runware-ring-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: none;
+}
+
+.runware-output-dialog .runware-ring-name {
+  max-width: 72px;
+  overflow: hidden;
+  font-size: 0.75em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runware-output-dialog .runware-ring-tile:has(input:checked) .runware-ring-thumb {
+  outline: 2px solid var(--color-border-highlight);
+  outline-offset: 1px;
+}
+
+.runware-output-dialog .runware-ring-tile:has(input:focus-visible) .runware-ring-thumb {
+  box-shadow: 0 0 6px var(--color-shadow-highlight);
+}
+
+.runware-output-dialog .runware-ring-tile:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* "Generate new ring..." panel */
+.runware-output-dialog .runware-ring-generator {
+  padding: 0.75rem;
+  border: 1px dashed var(--color-border-dark-tertiary);
+  border-radius: 4px;
+}
+
+.runware-output-dialog .runware-ring-generate-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.runware-output-dialog .runware-ring-generate-row button {
+  flex: 1 1 auto;
+}
+
+.runware-output-dialog .runware-generated-ring {
+  flex: none;
+  width: 96px;
+  height: 96px;
+}
+
+.runware-output-dialog .runware-generated-ring img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: none;
+}
+
+/* "Preview background" under a background prompt */
+.runware-output-dialog .runware-background-preview-row {
+  gap: 0.35rem;
+}
+
+/* Status and error lines above the footer */
+.runware-output-dialog .runware-output-status {
+  margin-bottom: 0;
+}
+
+.runware-output-dialog .runware-output-error {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-level-error, #c0392b);
+  border-radius: 3px;
+  background: rgba(192, 57, 43, 0.15);
+  color: var(--color-text-dark-primary);
+}
+
+@media (max-width: 768px) {
+  .runware-output-dialog .runware-output-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .runware-output-dialog .runware-output-preview {
+    position: static;
+  }
+}

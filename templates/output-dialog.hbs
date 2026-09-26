@@ -1,0 +1,292 @@
+<div class="runware-output-form">
+
+  <fieldset data-output-fieldset class="runware-output-fields">
+    <div class="runware-output-layout">
+
+      <!-- Preview (presentational only; output-dialog.js fills the images) -->
+      <div class="runware-output-preview">
+        <div class="runware-preview-block" data-preview-block="portrait">
+          <h4>Portrait</h4>
+          <div class="runware-portrait-preview" aria-hidden="true">
+            <img data-preview="portrait" alt="" />
+          </div>
+          <small data-preview-caption="portrait"></small>
+        </div>
+
+        <div class="runware-preview-block" data-preview-block="token">
+          <h4>Token</h4>
+          <div class="runware-token-preview" data-ring="{{defaultTokenRing}}" data-background="transparent"
+            data-token-framing aria-hidden="true" title="Drag to move, scroll to zoom, double-click to reset">
+            <div class="token-bg" data-preview="token-bg" hidden>
+              <img class="token-bg-image" data-preview="token-bg-image" alt="" draggable="false" hidden />
+              <span data-preview="token-bg-placeholder">generated</span>
+            </div>
+            <div class="token-subject-clip" data-preview="token-subject-clip">
+              <img class="token-subject" data-preview="token-subject" alt="" draggable="false" />
+            </div>
+            <div class="token-ring" data-preview="token-ring-dynamic" hidden></div>
+            <img class="token-ring-image" data-preview="token-ring" alt="" draggable="false" hidden />
+          </div>
+          <div class="runware-token-framing">
+            <small>Drag to move, scroll to zoom.</small>
+            <span class="runware-token-framing-zoom" data-framing-zoom>100%</span>
+            <button type="button" data-action="resetTokenFraming" title="Reset position and zoom" aria-label="Reset token position and zoom">
+              <i class="fas fa-rotate-left"></i>
+            </button>
+          </div>
+          <small data-preview-caption="token"></small>
+        </div>
+
+        <small class="runware-preview-note">Approximate preview. The real images are built on Apply.</small>
+      </div>
+
+      <div class="runware-output-cards">
+
+        <!-- Model for everything generated here (output-dialog.js keeps the options and note in sync) -->
+        <div class="runware-form-section runware-output-model">
+          <div class="runware-form-group">
+            <label for="{{partId}}-assetPreset"><i class="fas fa-brain"></i> Model for rings &amp; backgrounds</label>
+            <div class="runware-output-model-controls">
+              <select name="assetPreset" id="{{partId}}-assetPreset">
+                <option value="" selected>Same as generation{{#if generationModel}} ({{generationModel}}){{/if}}</option>
+                {{#each assetPresets}}
+                <option value="{{this.id}}">{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{#if canManagePresets}}
+              <button type="button" data-action="managePresets" title="Manage presets" aria-label="Manage presets">
+                <i class="fas fa-sliders-h"></i>
+              </button>
+              {{/if}}
+            </div>
+            <small data-asset-model-note></small>
+            <small data-asset-lora-hint hidden></small>
+            <small data-asset-presets-empty {{#if assetPresets.length}}hidden{{else}}{{#unless presetsLoaded}}hidden{{/unless}}{{/if}}>No presets defined.</small>
+            <small data-asset-presets-error {{#if presetsLoaded}}hidden{{/if}}>Presets could not be loaded.</small>
+          </div>
+        </div>
+
+        <!-- Portrait -->
+        <div class="runware-form-section runware-output-card" data-output="portrait">
+          <h3>
+            <label class="runware-output-toggle">
+              <input type="checkbox" name="portraitEnabled" checked />
+              <i class="fas fa-user"></i> Set as portrait
+            </label>
+          </h3>
+
+          <div class="runware-output-body" data-section="portrait-body">
+            <fieldset class="runware-radio-group">
+              <legend>Background</legend>
+              <div class="runware-radio-options">
+                {{#each portraitBackgroundOptions}}
+                <label class="runware-radio">
+                  <input type="radio" name="portraitBackground" value="{{this.value}}" {{#if this.checked}}checked{{/if}} />
+                  {{this.label}}
+                </label>
+                {{/each}}
+              </div>
+            </fieldset>
+
+            <div class="runware-output-subsection" data-section="portrait-bg-prompt">
+              <div class="runware-form-group">
+                <label for="{{partId}}-portraitBackgroundPrompt">Background prompt</label>
+                <textarea name="portraitBackgroundPrompt" id="{{partId}}-portraitBackgroundPrompt">{{backgroundPrompt}}</textarea>
+              </div>
+              <div class="runware-form-group">
+                <label for="{{partId}}-portraitBackgroundNegativePrompt">Background negative prompt</label>
+                <textarea name="portraitBackgroundNegativePrompt" id="{{partId}}-portraitBackgroundNegativePrompt">{{backgroundNegativePrompt}}</textarea>
+                {{#if generationPrompt}}
+                <small>Generation prompt: {{generationPrompt}}</small>
+                {{/if}}
+              </div>
+              <div class="runware-form-group runware-background-preview-row">
+                <button type="button" data-action="previewBackground" data-target="portrait">
+                  <i class="fas fa-image"></i> <span data-preview-background-label>Preview background (paid: 1 image + 1 background removal)</span>
+                </button>
+                <small>Uses the model chosen at the top. Apply reuses the previewed background and saves it.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Token -->
+        <div class="runware-form-section runware-output-card" data-output="token">
+          <h3>
+            <label class="runware-output-toggle">
+              <input type="checkbox" name="tokenEnabled" checked />
+              <i class="fas fa-circle-user"></i> Set as token
+            </label>
+          </h3>
+
+          <div class="runware-output-body" data-section="token-body">
+            <small class="runware-output-note">The token always gets a transparent subject: its background is removed on Apply.</small>
+
+            <fieldset class="runware-radio-group">
+              <legend>Ring</legend>
+              <div class="runware-radio-options">
+                {{#each tokenRingOptions}}
+                <label class="runware-radio">
+                  <input type="radio" name="tokenRing" value="{{this.value}}" {{#if this.checked}}checked{{/if}} />
+                  {{this.label}}
+                </label>
+                {{/each}}
+              </div>
+              <small class="runware-output-note">A GM's prototype token overrides (core.prototypeTokenOverrides) can force ring settings per actor type and win over these choices.</small>
+            </fieldset>
+
+            <div class="runware-form-group" data-section="clip-subject">
+              <label class="runware-checkbox">
+                <input type="checkbox" name="clipSubject" checked />
+                Keep the character inside the ring
+              </label>
+              <small>Cuts off whatever reaches past the ring. Untick to let the character break out of the frame.</small>
+            </div>
+
+            <!-- Foundry dynamic ring -->
+            <div class="runware-output-subsection" data-section="dynamic-options">
+              <small class="runware-output-note">The ring style ({{dynamicRing.label}}) is a world-wide setting chosen by the GM (core.dynamicTokenRing).</small>
+
+              <div class="runware-form-group">
+                <label for="{{partId}}-ringColor">Ring colour</label>
+                <div class="runware-color-input">
+                  <input type="text" name="ringColor" id="{{partId}}-ringColor" data-color-text
+                    placeholder="#rrggbb, blank = ring default" spellcheck="false" />
+                  <input type="color" value="#8a8f98" data-color-swatch="ringColor" aria-label="Pick ring colour" />
+                </div>
+              </div>
+
+              <div class="runware-form-group">
+                <label for="{{partId}}-subjectScale">Subject scale</label>
+                <input type="number" name="subjectScale" id="{{partId}}-subjectScale"
+                  value="{{subjectScale.fallback}}" min="{{subjectScale.min}}" max="{{subjectScale.max}}" step="{{subjectScale.step}}" />
+                <small>How large the character is drawn inside the ring ({{subjectScale.min}}-{{subjectScale.max}}, 1 = unchanged).</small>
+              </div>
+            </div>
+
+            <!-- Custom ring -->
+            <div class="runware-output-subsection" data-section="custom-options">
+              <fieldset class="runware-radio-group">
+                <legend>Custom ring</legend>
+                <div class="runware-ring-picker">
+                  <label class="runware-ring-tile runware-ring-tile-new" title="Generate new ring…">
+                    <input type="radio" name="customRing" value="new" {{#unless rings.length}}checked{{/unless}} />
+                    <span class="runware-ring-thumb"><i class="fas fa-plus"></i></span>
+                    <span class="runware-ring-name">Generate new ring…</span>
+                  </label>
+                  {{#each rings}}
+                  <label class="runware-ring-tile" title="{{this.name}}">
+                    <input type="radio" name="customRing" value="{{this.path}}" {{#if @first}}checked{{/if}} />
+                    <span class="runware-ring-thumb"><img src="{{this.path}}" alt="" loading="lazy" /></span>
+                    <span class="runware-ring-name">{{this.name}}</span>
+                  </label>
+                  {{/each}}
+                </div>
+                {{#unless rings.length}}
+                <small class="runware-output-note">No rings in this world yet. Generate one below.</small>
+                {{/unless}}
+              </fieldset>
+
+              <div class="runware-output-subsection runware-ring-generator" data-section="ring-generator">
+                <div class="runware-form-group">
+                  <label for="{{partId}}-ringPrompt">Ring prompt</label>
+                  <textarea name="ringPrompt" id="{{partId}}-ringPrompt">{{ringPrompt}}</textarea>
+                </div>
+                <div class="runware-form-group">
+                  <label for="{{partId}}-ringNegativePrompt">Ring negative prompt</label>
+                  <textarea name="ringNegativePrompt" id="{{partId}}-ringNegativePrompt">{{ringNegativePrompt}}</textarea>
+                  <small>Uses the model chosen at the top. The ring is saved to the world's ring folder on Apply.</small>
+                </div>
+                <div class="runware-ring-generate-row">
+                  <button type="button" data-action="generateRing">
+                    <i class="fas fa-ring"></i> <span data-generate-ring-label>Generate ring (paid: 1 image + 1 background removal)</span>
+                  </button>
+                  <div class="runware-generated-ring">
+                    <img data-preview="generated-ring" alt="Generated ring" hidden />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Token background -->
+            <fieldset class="runware-radio-group">
+              <legend>Token background</legend>
+              <div class="runware-radio-options">
+                <label class="runware-radio">
+                  <input type="radio" name="tokenBackground" value="transparent" checked />
+                  <span data-label="token-bg-transparent">{{transparentLabel}}</span>
+                </label>
+                <label class="runware-radio" data-section="bg-solid-option">
+                  <input type="radio" name="tokenBackground" value="solid" />
+                  Solid colour
+                </label>
+                <label class="runware-radio">
+                  <input type="radio" name="tokenBackground" value="generate" />
+                  Generate background
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="runware-form-group" data-section="bg-solid-color">
+              <label for="{{partId}}-tokenBackgroundColor">Background colour</label>
+              <div class="runware-color-input">
+                <input type="text" name="tokenBackgroundColor" id="{{partId}}-tokenBackgroundColor" data-color-text
+                  placeholder="#rrggbb, blank = ring default" spellcheck="false" />
+                <input type="color" value="#333333" data-color-swatch="tokenBackgroundColor" aria-label="Pick background colour" />
+              </div>
+            </div>
+
+            <div class="runware-form-group" data-section="same-bg">
+              <label class="runware-checkbox">
+                <input type="checkbox" name="sameBackgroundAsPortrait" checked />
+                Use the portrait's generated background
+              </label>
+            </div>
+
+            <div class="runware-output-subsection" data-section="token-bg-prompt">
+              <div class="runware-form-group">
+                <label for="{{partId}}-tokenBackgroundPrompt">Token background prompt</label>
+                <textarea name="tokenBackgroundPrompt" id="{{partId}}-tokenBackgroundPrompt">{{backgroundPrompt}}</textarea>
+              </div>
+              <div class="runware-form-group">
+                <label for="{{partId}}-tokenBackgroundNegativePrompt">Token background negative prompt</label>
+                <textarea name="tokenBackgroundNegativePrompt" id="{{partId}}-tokenBackgroundNegativePrompt">{{backgroundNegativePrompt}}</textarea>
+                <small>Clipped to the ring's inner circle, behind the character.{{#if generationPrompt}} Generation prompt: {{generationPrompt}}{{/if}}</small>
+              </div>
+              <div class="runware-form-group runware-background-preview-row">
+                <button type="button" data-action="previewBackground" data-target="token">
+                  <i class="fas fa-image"></i> <span data-preview-background-label>Preview background (paid: 1 image + 1 background removal)</span>
+                </button>
+                <small>Uses the model chosen at the top. Apply reuses the previewed background and saves it.</small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </fieldset>
+
+  <div class="runware-loading runware-output-status" role="status" hidden>
+    <i class="fas fa-spinner"></i>
+    <span data-status-text></span>
+  </div>
+
+  <div class="runware-output-error" role="alert" hidden></div>
+
+  <!-- Action Buttons -->
+  <div class="runware-actions">
+    <button type="button" class="cancel-button" data-action="cancel">
+      <i class="fas fa-times"></i> Cancel
+    </button>
+    {{#if canGoBack}}
+    <button type="button" class="cancel-button" data-action="back">
+      <i class="fas fa-arrow-left"></i> Back to images
+    </button>
+    {{/if}}
+    <button type="button" class="generate-button" data-action="apply">
+      <i class="fas fa-check"></i> <span data-apply-label>Apply</span>
+    </button>
+  </div>
+
+</div>

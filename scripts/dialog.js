@@ -7,7 +7,8 @@
 import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
 import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
-import { getRunwareClient } from './runware-client.js';
+import { getRunwareClient, downloadRunwareImage, RUNWARE_OUTPUT_PARAMS } from './runware-client.js';
+import { extractModelParams } from './asset-generation.js';
 
 /**
  * Parse a form value as a finite number, or return null for blank/invalid input.
@@ -227,15 +228,20 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       ui.notifications.info(`${MODULE_NAME}: Generating image...`);
 
       // Generate the image using Runware SDK
-      const imageData = await this._generateImage(formData);
+      const { images, requestParams } = await this._generateImage(formData);
 
       // Call the callback with the generated image. It resolves `false` when
       // the flow didn't finish (picker cancelled, save failed, ...); keep the
       // dialog and the user's prompt in that case instead of closing on them.
+      // The already-clamped request is handed on so rings and backgrounds are
+      // generated with the same model settings without re-reading the form.
       let completed = true;
-      if (this.onImageGenerated && imageData) {
-        completed = (await this.onImageGenerated(imageData, {
-          removeBackground: !!formData.removeBackground
+      if (this.onImageGenerated && images) {
+        completed = (await this.onImageGenerated(images, {
+          removeBackground: !!formData.removeBackground,
+          prompt: formData.prompt,
+          modelParams: extractModelParams(requestParams),
+          portraitSize: { width: requestParams.width, height: requestParams.height }
         })) !== false;
       }
 
@@ -404,6 +410,18 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       heightInput.value = `${preset.height}`;
     }
 
+    // Unlike width/height, a preset without steps or CFG scale clears them
+    // (blank = the model's default), so they never leak from the last preset.
+    const stepsInput = form.querySelector('input[name="steps"]');
+    if (stepsInput) {
+      stepsInput.value = preset.steps === null ? '' : `${preset.steps}`;
+    }
+
+    const cfgScaleInput = form.querySelector('input[name="cfgScale"]');
+    if (cfgScaleInput) {
+      cfgScaleInput.value = preset.cfgScale === null ? '' : `${preset.cfgScale}`;
+    }
+
     const embeddingsField = form.querySelector('textarea[name="embeddings"]');
     if (embeddingsField) {
       embeddingsField.value = this._formatEmbeddingsForInput(preset.embeddings);
@@ -433,6 +451,9 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
     const width = Number(rawPreset.width);
     const height = Number(rawPreset.height);
+    // Clamped again in _generateImage(); this only keeps the form plausible.
+    const steps = toFiniteNumber(rawPreset.steps);
+    const cfgScale = toFiniteNumber(rawPreset.cfgScale);
 
     return {
       id: rawPreset.id ?? foundry.utils.randomID(),
@@ -440,6 +461,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       model: rawPreset.model,
       width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
       height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      steps: steps === null ? null : Math.round(clamp(steps, LIMITS.steps)),
+      cfgScale: cfgScale === null ? null : clamp(cfgScale, LIMITS.cfgScale),
       lora: rawPreset.lora
         ? {
             model: rawPreset.lora.model ?? '',
@@ -552,6 +575,17 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     this._presetsHookId = Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
   }
 
+  /**
+   * Ignore Escape while a generation (and the "Use this image" step that
+   * follows it) is in progress. Escape dismisses every open window, so it
+   * would otherwise throw away the prompt the output step promises to keep
+   * when the user cancels there. The X button still closes the dialog.
+   */
+  async close(options = {}) {
+    if (this.isGenerating && options?.closeKey) return this;
+    return super.close(options);
+  }
+
   _onClose(options) {
     super._onClose(options);
     if (this._presetsHookId !== null) {
@@ -567,7 +601,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
   /**
    * Generate an image using the Runware SDK
    * @param {Object} formData - The form data
-   * @returns {Promise<Object>} The generated image data
+   * @returns {Promise<{ images: Object[], requestParams: Object }>} The generated
+   *   images and the clamped request that produced them
    */
   async _generateImage(formData) {
     // Read the key now rather than when the dialog opened, so a key the GM
@@ -598,8 +633,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
         toFiniteNumber(formData.numberResults) ?? LIMITS.numberResults.fallback,
         LIMITS.numberResults
       )),
-      outputType: 'base64Data', // We'll get base64 data to save locally
-      outputFormat: 'PNG'
+      ...RUNWARE_OUTPUT_PARAMS // A URL, downloaded below - see runware-client.js
     };
 
     // Add negative prompt if provided
@@ -653,8 +687,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       throw new Error('No images were generated');
     }
 
-    // Return all generated images
-    return images;
+    // Return all generated images, downloaded as base64
+    return { images: await Promise.all(images.map(downloadRunwareImage)), requestParams };
   }
 
   async _onSubmit(event, form, formData) {

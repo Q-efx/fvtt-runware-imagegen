@@ -5,6 +5,86 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.0]
+
+### Added
+
+- **"Use this image" window**: after picking an image, portrait and token are configured as two
+  separate outputs with a live preview. Nothing is saved until **Apply**, and nothing is removed or
+  generated before it except through the window's labelled paid buttons (Generate ring, Preview
+  background). The Apply label lists the paid calls it will make (e.g. "Apply (1 background
+  removal, 1 background generation)"). **Back to images** returns to the picker; Cancel or closing the window keeps the
+  generation dialog open with its prompt.
+- **Portrait background**: Keep original, Remove background, or **Generate new background** (the
+  subject is cut out and composited over a newly generated background).
+- **Token rings**: the token always gets a transparent subject, with a choice of
+  - **No ring**;
+  - **Foundry dynamic ring** (default when the system provides one): ring colour, background colour
+    and subject scale are written to `prototypeToken.ring.*`. The ring style itself stays the GM's
+    world-wide `core.dynamicTokenRing` setting;
+  - **Custom ring**: pick a ring previously generated in this world, or generate a new one (paid: one
+    image plus one background removal). Its centre is cut out in code, and it is baked into a
+    static token image with the dynamic ring turned off, because dynamic ring styles are world-wide.
+- **Token framing**: drag the character in the token preview to move it and use the mouse wheel to
+  zoom around the cursor; double-click or the reset button re-centres it. The framing is baked into
+  the token image on Apply (free, no extra Runware call).
+- **Keep the character inside the ring** (default on, dynamic and custom rings): the character is
+  clipped just under the ring's band. Foundry's dynamic ring does not mask the token image, so
+  before this the character was drawn past the ring onto the map. Untick it for a break-out look.
+- **Model for rings & backgrounds**: the "Use this image" window can generate its rings and
+  backgrounds with one of the world's generation presets (model, LoRA, VAE, embeddings, steps, CFG
+  scale) instead of the generation's own settings. A preset's LoRA trigger word is not added to the
+  prompts automatically. GMs can open the preset manager from the window, and preset changes show
+  up in an open window without losing its edits. A background is only reused from the cache for the
+  same model settings.
+- **Background preview**: a paid, labelled **Preview background** button under the portrait's and
+  the token's background prompt generates the background in the window (one image, plus the
+  subject's background removal if it hasn't been done yet, which Apply needs anyway). The preview
+  shows the cut-out character on the new background, and Apply reuses both instead of paying again;
+  **Regenerate background** replaces it. After a prompt or model edit the last preview stays,
+  dimmed and marked "outdated", and Apply generates a new background. Previewed backgrounds are
+  only saved on Apply: **Back to images** keeps them, Cancel discards them.
+- **Presets: steps and CFG scale**: GMs can set inference steps and CFG scale per preset (optional,
+  clamped to the request limits). Applying a preset without them clears both fields, so the model's
+  defaults are used instead of the previous preset's values.
+- **Token background**: transparent (the ring's default under a dynamic ring), a solid colour
+  (dynamic ring only), or a generated background clipped inside the ring. It can reuse the
+  portrait's generated background instead of paying for a second one.
+- **Settings**: `backgroundRemovalModel`, and editable prompt templates for rings and backgrounds
+  (`ringPromptTemplate`, `ringNegativePromptTemplate`, `backgroundPromptTemplate`,
+  `backgroundNegativePromptTemplate`) with `{material}`, `{scene}` and `{prompt}` placeholders.
+  Clearing a field restores its default.
+- New files: `…/backgrounds/background_N.png` per actor, and world-shared rings in
+  `images/runware/rings/ring_N.png`.
+
+### Changed
+
+- **Images are saved as WebP** instead of PNG (portraits, tokens, backgrounds and rings), which
+  makes them several times smaller. Runware now returns WebP and the in-browser compositing encodes
+  WebP; transparency is kept. Existing PNGs are untouched and numbering continues after them.
+- **Background removal model**: `runware:110@1` was shut down by Runware on 2026-06-30. The default
+  is now `bria:2@1` (Bria RMBG 2.0); `runware:109@1` (RemBG 1.4) is far cheaper but rougher.
+- The **"Set as Actor Image?"** prompt is replaced by the new window, and the generation form's
+  "Remove Background" checkbox now only preselects "Remove background" for the portrait. Background
+  removal no longer runs before you decide how the image is used.
+- Choosing **No ring** or a custom ring switches the token's dynamic ring off.
+- Paid results (subject cut-out, backgrounds, a generated ring) are kept until the flow ends, so
+  pressing Apply again after a failure, or going back to the images and picking again, doesn't pay
+  for them twice or upload duplicate files.
+- Settings registration moved from `module.js` to `scripts/settings.js`.
+- Escape no longer closes the generation dialog while a generation or the "Use this image" step is
+  in progress, so cancelling the output step keeps the prompt (the X button still closes it).
+
+### Fixed
+
+- **Generated images never arrived in Foundry** although Runware created (and billed) them.
+  Runware never delivers a result whose image is sent inline as base64 once it is large: a
+  1344x2048 PNG (about 11 MB of base64) was generated but never arrived, while 512x512 did.
+  Generated images, rings, backgrounds and background removals are now returned as a link and
+  downloaded from Runware's image server. Results are also awaited for up to 5 minutes instead
+  of 60 seconds, a task is never re-sent automatically (the SDK used to pay again and drop the
+  first result), and a timeout is reported with a readable message.
+
 ## [v1.0.1]
 
 ### Fixed

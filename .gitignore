@@ -31,3 +31,6 @@ module.zip
 # Temporary files
 tmp/
 temp/
+
+# Browser network captures (contain the Runware API key)
+*.har

@@ -6,14 +6,31 @@
  */
 
 import { RunwareImageDialog, getImageDialogId } from './dialog.js';
+import { RunwareOutputDialog, getOutputDialogId } from './output-dialog.js';
 import { ImageFileHandler } from './file-handler.js';
-import { RunwarePresetConfig } from './preset-config.js';
-import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
+import { registerSettings } from './settings.js';
+import {
+  MODULE_ID,
+  MODULE_NAME,
+  TOKEN_SIZE,
+  RING_INNER_RADIUS,
+  CUSTOM_RING_SUBJECT_SCALE,
+  CUSTOM_RING_BACKGROUND_OVERLAP
+} from './constants.js';
 import { getRunwareErrorMessage } from './runware-errors.js';
 import { checkRunwareApiKey } from './runware-connection.js';
-import { getRunwareClient } from './runware-client.js';
+import {
+  removeBackground,
+  generateBackground,
+  SUBJECT_CACHE_KEY,
+  getBackgroundRequest
+} from './asset-generation.js';
+import { compositeLayers, getImageSize, toDataURI } from './image-compositor.js';
+import { clampTokenFraming, isNeutralFraming } from './token-ring.js';
 
-const BACKGROUND_REMOVAL_MODEL = 'runware:110@1';
+// Cache keys for saved portrait/token files (see saveOutputOnce). They never
+// hold image data, so the paid-call summary ignores them.
+const OUTPUT_CACHE_PREFIX = 'output:';
 
 /**
  * Initialize the module
@@ -22,93 +39,7 @@ Hooks.once('init', async function() {
   console.debug(`${MODULE_NAME} | Initializing module`);
 
   // Register module settings
-  game.settings.register(MODULE_ID, 'apiKey', {
-    name: 'Runware API Key',
-    hint: 'Your Runware API key for image generation. Verified automatically whenever it is changed.',
-    scope: 'world',
-    config: true,
-    type: String,
-    default: '',
-    // Fires on every connected client whenever this world setting actually
-    // changes value (not on every settings-form save) - it's a world setting,
-    // so the change is broadcast to everyone. Guard on isGM so a key edit
-    // doesn't also make every player's browser open a websocket to Runware
-    // just to validate it.
-    onChange: (value) => {
-      if (!game.user?.isGM) return;
-      validateApiKey(value);
-    }
-  });
-
-  game.settings.register(MODULE_ID, 'defaultModel', {
-    name: 'Default Model',
-    hint: 'The default AI model to use for image generation',
-    scope: 'world',
-    config: true,
-    type: String,
-    default: 'runware:100@1',
-  });
-
-  game.settings.register(MODULE_ID, 'imageWidth', {
-    name: 'Image Width',
-    hint: 'Default width for generated images (multiple of 64)',
-    scope: 'world',
-    config: true,
-    type: Number,
-    default: LIMITS.dimension.fallback,
-    range: {
-      min: LIMITS.dimension.min,
-      max: LIMITS.dimension.max,
-      step: LIMITS.dimension.step
-    }
-  });
-
-  game.settings.register(MODULE_ID, 'imageHeight', {
-    name: 'Image Height',
-    hint: 'Default height for generated images (multiple of 64)',
-    scope: 'world',
-    config: true,
-    type: Number,
-    default: LIMITS.dimension.fallback,
-    range: {
-      min: LIMITS.dimension.min,
-      max: LIMITS.dimension.max,
-      step: LIMITS.dimension.step
-    }
-  });
-
-  game.settings.register(MODULE_ID, 'numberResults', {
-    name: 'Number of Results',
-    hint: 'How many images to generate per request (1-4)',
-    scope: 'world',
-    config: true,
-    type: Number,
-    default: 1,
-    range: {
-      min: 1,
-      max: 4,
-      step: 1
-    }
-  });
-
-  game.settings.register(MODULE_ID, 'generationPresets', {
-    name: 'Runware Generation Presets',
-    hint: 'Collection of reusable model presets shared with all users.',
-    scope: 'world',
-    config: false,
-    type: Array,
-    default: [],
-    onChange: (value) => Hooks.callAll('runware-imagegen.presetsUpdated', value)
-  });
-
-  game.settings.registerMenu(MODULE_ID, 'presetManager', {
-    name: 'Manage Generation Presets',
-    label: 'Manage Presets',
-    hint: 'Define model presets that are available to all players.',
-    icon: 'fas fa-sliders-h',
-    type: RunwarePresetConfig,
-    restricted: true
-  });
+  registerSettings({ onApiKeyChange: validateApiKey });
 
   console.debug(`${MODULE_NAME} | Module initialized`);
 });
@@ -243,7 +174,11 @@ async function openImageGenerationDialog(actorSheet) {
   }
 
   // One dialog per actor: bring an open one to the front instead of replacing it.
-  const existing = foundry.applications.instances?.get(getImageDialogId(actor));
+  // An open "Use this image" window counts too - it still belongs to an earlier
+  // generation (whose dialog may have been closed), and a new paid generation
+  // couldn't open a second one.
+  const existing = foundry.applications.instances?.get(getImageDialogId(actor))
+    ?? foundry.applications.instances?.get(getOutputDialogId(actor));
   if (existing) {
     existing.bringToFront?.();
     return;
@@ -263,12 +198,7 @@ async function openImageGenerationDialog(actorSheet) {
  * @returns {string}
  */
 function getImageSrc(image) {
-  if (image?.imageBase64Data) {
-    return image.imageBase64Data.startsWith('data:')
-      ? image.imageBase64Data
-      : `data:image/png;base64,${image.imageBase64Data}`;
-  }
-  return image?.imageURL ?? '';
+  return toDataURI(image) || image?.imageURL || '';
 }
 
 /**
@@ -288,14 +218,22 @@ function getDialogV2() {
 }
 
 /**
- * Handle the generated image(s): pick one, optionally remove its background,
- * ask what to use it for, then save and update the actor.
+ * Handle the generated image(s): pick one, then let the user decide in the
+ * "Use this image" window how it becomes the portrait and/or token. Nothing is
+ * saved and no paid call is made until that window's Apply (apart from the
+ * explicit "Generate ring" and "Preview background" buttons inside it, whose
+ * results are only saved on Apply).
  * @param {Actor} actor - The actor document
  * @param {Array<Object>} imagesData - The generated image data from Runware
- * @param {Object} options - Additional options
- * @returns {Promise<boolean>} `true` once the flow finished (including the user
- *   deliberately declining to use the image), `false` if it was abandoned or
- *   failed - the dialog stays open in that case so the prompt isn't lost.
+ * @param {Object} options - Additional options from the generation dialog
+ * @param {boolean} [options.removeBackground] - Preselect "Remove background" for the portrait
+ * @param {string} [options.prompt] - The generation prompt
+ * @param {Object} [options.modelParams] - Model settings reused for rings and backgrounds,
+ *   unless the output window picks a preset instead
+ * @param {{width: number, height: number}} [options.portraitSize] - The generation request's size
+ * @returns {Promise<boolean>} `true` once the images were applied, `false` if
+ *   the flow was abandoned or failed - the dialog stays open in that case so
+ *   the prompt isn't lost.
  */
 async function handleGeneratedImage(actor, imagesData, options = {}) {
   try {
@@ -304,101 +242,38 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
       return false;
     }
 
-    let selectedImageData = imagesData.length === 1
-      ? imagesData[0]
-      : await showImageSelectionDialog(imagesData);
+    const { removeBackground: preselectRemoval = false, prompt = '', modelParams = {}, portraitSize = null } = options;
+    const canGoBack = imagesData.length > 1;
+    const assetCaches = new Map();
+    let latestCache = null;
 
-    if (!selectedImageData) {
-      ui.notifications.info(`${MODULE_NAME}: No image selected.`);
-      return false;
-    }
+    // "Back to images" in the output window returns here to pick again.
+    while (true) {
+      const selectedImageData = canGoBack
+        ? await showImageSelectionDialog(imagesData)
+        : imagesData[0];
 
-    // Background removal for the portrait, if requested up front.
-    let backgroundRemoved = false;
-    if (options.removeBackground) {
-      ui.notifications.info(`${MODULE_NAME}: Removing background from selected image...`);
-      const bgRemovedData = await removeBackgroundFromImage(selectedImageData);
-      if (bgRemovedData) {
-        selectedImageData = { ...selectedImageData, ...bgRemovedData };
-        backgroundRemoved = true;
-      } else {
-        ui.notifications.warn(`${MODULE_NAME}: Failed to remove background, using original image.`);
+      if (!selectedImageData) {
+        ui.notifications.info(`${MODULE_NAME}: No image selected.`);
+        return false;
       }
-    }
 
-    // Ask first, save afterwards: saving before the prompt left an unused file
-    // on disk every time the user answered "No" or "Token Only". The preview
-    // is built from the in-memory image via DOM APIs, never from an HTML string.
-    const consentContent = document.createElement('div');
-    const consentText = document.createElement('p');
-    consentText.textContent = "Would you like to use this image for the actor's portrait and/or token?";
-    consentContent.appendChild(consentText);
-    const consentImage = document.createElement('img');
-    consentImage.src = getImageSrc(selectedImageData);
-    consentImage.style.maxWidth = '100%';
-    consentImage.style.border = '1px solid #000';
-    consentContent.appendChild(consentImage);
-
-    // Portrait and token are asked about together because the token may
-    // trigger a paid background-removal call - it must not happen without
-    // consent. rejectClose: false + normalising null keeps dismissal (X /
-    // Escape) equivalent to declining both instead of rejecting the promise.
-    const consentResult = await getDialogV2().wait({
-      window: { title: 'Set as Actor Image?' },
-      // The Runware response has no width field, so use a fixed preview width.
-      position: { width: 640, height: 'auto' },
-      content: consentContent,
-      rejectClose: false,
-      buttons: [
-        {
-          action: 'both',
-          icon: 'fas fa-check',
-          label: 'Portrait + Token',
-          default: true,
-          callback: () => ({ portrait: true, token: true }),
-        },
-        {
-          action: 'portraitOnly',
-          label: 'Portrait Only',
-          callback: () => ({ portrait: true, token: false }),
-        },
-        {
-          action: 'tokenOnly',
-          label: 'Token Only',
-          callback: () => ({ portrait: false, token: true }),
-        },
-        {
-          action: 'no',
-          icon: 'fas fa-times',
-          label: 'No',
-          callback: () => ({ portrait: false, token: false }),
-        },
-      ],
-    });
-    const choice = consentResult ?? { portrait: false, token: false };
-    if (!choice.portrait && !choice.token) return true;
-
-    let portraitPath = null;
-    if (choice.portrait) {
-      ui.notifications.info(`${MODULE_NAME}: Saving selected image...`);
-      portraitPath = await ImageFileHandler.saveImage(actor, selectedImageData);
-    }
-
-    let tokenPath = null;
-    if (choice.token) {
-      tokenPath = await saveTokenImage(actor, selectedImageData, {
-        backgroundRemoved,
-        // Don't pay for a second removal attempt if the first one just failed.
-        attemptRemoval: !options.removeBackground,
-        portraitPath
+      latestCache = getAssetCache(assetCaches, selectedImageData, latestCache);
+      const result = await RunwareOutputDialog.wait({
+        actor,
+        imageData: selectedImageData,
+        canGoBack,
+        modelParams,
+        portraitSize,
+        generationPrompt: prompt,
+        defaults: { portraitBackground: preselectRemoval ? 'remove' : 'keep' },
+        assetCache: latestCache,
+        onApply: (plan, context) => executeOutputPlan(actor, selectedImageData, plan, context)
       });
+
+      if (result === 'applied') return true;
+      if (result !== 'back') return false;
     }
-
-    await applyActorImages(actor, { portraitPath, tokenPath });
-
-    // A requested token that couldn't be saved (already reported) is an
-    // unfinished flow: keep the dialog open rather than discard the image.
-    return !(choice.token && !tokenPath);
   } catch (error) {
     console.error(`${MODULE_NAME} | Error handling generated image:`, error);
     ui.notifications.error(`${MODULE_NAME}: Could not apply the generated image - ${getRunwareErrorMessage(error)}`);
@@ -407,60 +282,313 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
 }
 
 /**
- * Produce the token image (background removed) and save it.
- * @returns {Promise<string|null>} The token path, or null if saving failed.
+ * The paid-results cache for one picked image. The removed subject belongs to
+ * that image; generated rings and backgrounds don't depend on it, so they are
+ * shared with every other image's cache (same entry objects, so a savedPath
+ * recorded through one cache is seen by all). Going "Back to images" and
+ * picking again therefore never pays for the same asset twice.
+ * @param {Map<Object, Map>} assetCaches - per-image caches for this generation
+ * @param {Object} image - the picked Runware image
+ * @param {Map|null} [latest] - the previous window's cache. Its entries win:
+ *   "Regenerate background" replaces an entry there with a new object, and
+ *   the other caches still hold the old one.
+ * @returns {Map<string, {imageData: Object|null, savedPath: string|null}>}
  */
-async function saveTokenImage(actor, imageData, { backgroundRemoved, attemptRemoval, portraitPath }) {
-  try {
-    // Already background-free and already on disk as the portrait: reuse that
-    // file instead of paying for removal again or uploading a duplicate.
-    if (backgroundRemoved && portraitPath) return portraitPath;
-
-    let tokenImageData = imageData;
-    if (!backgroundRemoved && attemptRemoval) {
-      const bgRemovedData = await removeBackgroundFromImage(imageData);
-      if (bgRemovedData) {
-        tokenImageData = { ...imageData, ...bgRemovedData };
-      } else {
-        ui.notifications.warn(`${MODULE_NAME}: Falling back to the original image for the token.`);
-      }
-    }
-
-    return await ImageFileHandler.saveImage(actor, tokenImageData, { type: 'token' });
-  } catch (error) {
-    console.error(`${MODULE_NAME} | Failed to save token image:`, error);
-    ui.notifications.error(`${MODULE_NAME}: Failed to save token image - ${getRunwareErrorMessage(error)}`);
-    return null;
+function getAssetCache(assetCaches, image, latest = null) {
+  let cache = assetCaches.get(image);
+  if (!cache) {
+    cache = new Map();
+    assetCaches.set(image, cache);
   }
+  const isShared = (key) => key !== SUBJECT_CACHE_KEY && !key.startsWith(OUTPUT_CACHE_PREFIX);
+  if (latest && latest !== cache) {
+    for (const [key, entry] of latest) {
+      if (isShared(key)) cache.set(key, entry);
+    }
+  }
+  for (const other of assetCaches.values()) {
+    for (const [key, entry] of other) {
+      if (isShared(key) && !cache.has(key)) cache.set(key, entry);
+    }
+  }
+  return cache;
+}
+
+/**
+ * Save an output once per identical request. A retried Apply (say, after the
+ * actor update failed) reuses the file it already uploaded instead of leaving
+ * an orphaned image_N.webp behind.
+ * @param {Map} cache
+ * @param {string} key - OUTPUT_CACHE_PREFIX + a description of the output
+ * @param {() => Promise<string>} save
+ * @returns {Promise<string>} The saved path
+ */
+async function saveOutputOnce(cache, key, save) {
+  const hit = cache.get(key);
+  if (hit?.savedPath) return hit.savedPath;
+
+  const savedPath = await save();
+  cache.set(key, { imageData: null, savedPath });
+  return savedPath;
+}
+
+/**
+ * Return the cached result for `key`, or produce and cache it. The cache
+ * belongs to the output window, so pressing Apply again after a failure
+ * doesn't pay for the same removal or background a second time.
+ * @param {Map<string, {imageData: Object, savedPath: string|null}>} cache
+ * @param {string} key
+ * @param {Function} setStatus
+ * @param {string} status - Shown only when the asset actually has to be produced
+ * @param {() => Promise<Object>} produce
+ * @returns {Promise<{imageData: Object, savedPath: string|null}>}
+ */
+async function getCachedAsset(cache, key, setStatus, status, produce) {
+  const hit = cache.get(key);
+  if (hit?.imageData) return hit;
+
+  setStatus(status);
+  const entry = { imageData: await produce(), savedPath: null };
+  cache.set(key, entry);
+  return entry;
+}
+
+/**
+ * Build, save, and apply the portrait and token described by an output plan.
+ * Called by the output window's Apply. Throws on any failure (the window shows
+ * the error and stays open) and never notifies by itself.
+ *
+ * Layers per output (bottom to top):
+ * - portrait keep: original; remove: subject; generate: background (cover) + subject
+ * - token no ring: [background clipped to a circle] + subject
+ * - token dynamic ring: [background clipped to the ring's inner edge] + subject,
+ *   used as the ring's subject texture. The core ring doesn't mask the subject,
+ *   so a baked-in background must stop at the ring or it would cover it.
+ * - token custom ring: [background] + subject in the inner two thirds + ring,
+ *   baked into one WebP with the dynamic ring off (ring styles are world-wide).
+ * The token subject is additionally zoomed and shifted by `token.framing`
+ * (dragged and wheeled on the preview), and with `token.clipSubject` clipped
+ * just under the ring's band so it can't stick out of the ring. Either one
+ * forces a composited token.
+ * @param {Actor} actor
+ * @param {Object} original - The selected Runware image
+ * @param {Object} plan - The OutputPlan built by RunwareOutputDialog
+ * @param {Object} context
+ * @param {(text: string) => void} context.setStatus
+ * @param {Map} context.cache
+ */
+async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
+  // The dialog's model selection (a preset, or the generation's settings) is
+  // always set; never guess another model for a paid request.
+  if (!plan?.modelParams) throw new Error('The output plan has no model settings.');
+  const { portrait, token } = plan;
+
+  // One background removal serves every output that needs the bare subject.
+  let subject = null;
+  if ((portrait && portrait.background !== 'keep') || token) {
+    const entry = await getCachedAsset(cache, SUBJECT_CACHE_KEY, setStatus, 'Removing background…',
+      () => removeBackground(original));
+    subject = entry.imageData;
+  }
+
+  // A token that shares the portrait's background gets the portrait's request,
+  // so the second lookup is a cache hit on the same entry.
+  const portraitRequest = getBackgroundRequest(plan, 'portrait');
+  const tokenRequest = getBackgroundRequest(plan, 'token');
+  const getBackground = ({ key, ...request }) =>
+    getCachedAsset(cache, key, setStatus, 'Generating background…', () => generateBackground(request));
+
+  const portraitBackground = portraitRequest ? await getBackground(portraitRequest) : null;
+  const tokenBackground = tokenRequest ? await getBackground(tokenRequest) : null;
+
+  let ringEntry = null;
+  let ringSource = null;
+  if (token?.ring === 'custom') {
+    if (token.custom?.source === 'generated') {
+      ringEntry = cache.get(token.custom.cacheKey) ?? null;
+      if (!ringEntry?.imageData) throw new Error('The generated ring is no longer available. Generate it again.');
+      ringSource = ringEntry.imageData;
+    } else if (token.custom?.ringPath) {
+      ringSource = token.custom.ringPath;
+    } else {
+      throw new Error('Choose a custom ring first.');
+    }
+  }
+
+  setStatus('Compositing…');
+
+  let portraitImage = null;
+  if (portrait?.background === 'keep') {
+    portraitImage = original;
+  } else if (portrait?.background === 'remove') {
+    portraitImage = subject;
+  } else if (portrait?.background === 'generate') {
+    const { width, height } = await getImageSize({ imageBase64Data: original.imageBase64Data });
+    portraitImage = await compositeLayers({
+      width,
+      height,
+      layers: [
+        { src: portraitBackground.imageData, fit: 'cover' },
+        { src: subject, fit: 'contain' }
+      ]
+    });
+  }
+
+  let tokenImage = null;
+  // A plain transparent token is the same file as a background-removed
+  // portrait: reuse it instead of uploading a duplicate.
+  let tokenReusesPortrait = false;
+  if (token) {
+    const backgroundLayer = (clipCircle) => tokenBackground && {
+      src: tokenBackground.imageData,
+      fit: 'cover',
+      clipCircle
+    };
+    const framing = clampTokenFraming(token.framing);
+    const subjectLayer = (scale, extra = {}) => ({
+      src: subject,
+      fit: 'contain',
+      scale: scale * framing.zoom,
+      offsetX: framing.offsetX,
+      offsetY: framing.offsetY,
+      ...extra
+    });
+
+    if (token.ring === 'custom') {
+      tokenImage = await compositeLayers({
+        width: TOKEN_SIZE,
+        height: TOKEN_SIZE,
+        layers: [
+          // Slightly larger than the punched centre so no gap shows at the band's inner edge.
+          backgroundLayer(RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP),
+          // At least clipped to the token circle, so it never spills into the corners.
+          subjectLayer(CUSTOM_RING_SUBJECT_SCALE, {
+            clipCircle: token.clipSubject ? RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP : 1
+          }),
+          { src: ringSource, fit: 'stretch' }
+        ]
+      });
+    } else if (tokenBackground || !isNeutralFraming(framing) || token.clipSubject) {
+      // subject.scale shrinks or grows the core ring relative to the texture,
+      // so its inner edge sits at RING_INNER_RADIUS / scale in texture space.
+      // The core ring doesn't mask its subject: without a clip, anything
+      // outside the ring is drawn over the map.
+      const dynamicScale = token.ring === 'dynamic' ? token.dynamic.subjectScale : 1;
+      const clipCircle = token.ring === 'dynamic' ? Math.min(1, RING_INNER_RADIUS / dynamicScale) : 1;
+      const subjectClip = token.clipSubject
+        ? Math.min(1, (RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP) / dynamicScale)
+        : null;
+      tokenImage = await compositeLayers({
+        width: TOKEN_SIZE,
+        height: TOKEN_SIZE,
+        layers: [backgroundLayer(clipCircle), subjectLayer(1, { clipCircle: subjectClip })]
+      });
+    } else {
+      tokenImage = subject;
+      tokenReusesPortrait = portrait?.background === 'remove';
+    }
+  }
+
+  setStatus('Saving…');
+
+  // Paid assets are kept on disk so they can be reused: a generated ring in
+  // the world-wide rings folder (offered by every actor's ring picker), a
+  // generated background next to the actor's portraits. savedPath stops a
+  // retried Apply from uploading them twice.
+  if (ringEntry && !ringEntry.savedPath) {
+    ringEntry.savedPath = await ImageFileHandler.saveImage(null, ringEntry.imageData, { type: 'ring' });
+  }
+  for (const entry of new Set([portraitBackground, tokenBackground].filter(Boolean))) {
+    if (!entry.savedPath) {
+      entry.savedPath = await ImageFileHandler.saveImage(actor, entry.imageData, { type: 'background' });
+    }
+  }
+
+  // The background belongs in these keys: the plan alone doesn't say which
+  // model painted it, nor (for a shared background) the portrait's prompt. Its
+  // saved path tells a regenerated background ("Regenerate background" after
+  // a failed Apply) from the one an earlier attempt composited.
+  const backgroundKey = (request, entry) => `${request?.key ?? ''}:${entry?.savedPath ?? ''}`;
+  const portraitPath = portraitImage
+    ? await saveOutputOnce(cache,
+      `${OUTPUT_CACHE_PREFIX}portrait:${JSON.stringify(portrait)}:${backgroundKey(portraitRequest, portraitBackground)}`,
+      () => ImageFileHandler.saveImage(actor, portraitImage))
+    : null;
+  let tokenPath = null;
+  if (tokenImage) {
+    tokenPath = tokenReusesPortrait && portraitPath
+      ? portraitPath
+      : await saveOutputOnce(cache,
+        `${OUTPUT_CACHE_PREFIX}token:${JSON.stringify(token)}:${backgroundKey(tokenRequest, tokenBackground)}`,
+        () => ImageFileHandler.saveImage(actor, tokenImage, { type: 'token' }));
+  }
+
+  setStatus('Updating actor…');
+  await applyActorImages(actor, {
+    portraitPath,
+    token: tokenPath
+      ? { path: tokenPath, ring: token.ring === 'dynamic' ? token.dynamic : null }
+      : null
+  });
+}
+
+/**
+ * Token document fields for a saved token image. Without a dynamic ring the
+ * ring is switched off, so a custom ring baked into the image isn't drawn
+ * inside a second, core ring.
+ * @param {{path: string, ring: {ringColor: string|null, backgroundColor: string|null, subjectScale: number}|null}} token
+ * @returns {Object} Flattened update keys relative to the token document
+ */
+function getTokenImageFields({ path, ring }) {
+  if (!ring) {
+    return { 'texture.src': path, 'ring.enabled': false, 'ring.subject.texture': null };
+  }
+  return {
+    'texture.src': path,
+    'ring.enabled': true,
+    'ring.subject.texture': path,
+    'ring.subject.scale': ring.subjectScale,
+    'ring.colors.ring': ring.ringColor ?? null,
+    'ring.colors.background': ring.backgroundColor ?? null
+  };
 }
 
 /**
  * Point the actor's portrait and token at the saved files.
- * For an unlinked (synthetic) token actor the placed token's own texture is
- * updated: its prototype token is meaningless and changing it has no effect.
+ * For an unlinked (synthetic) token actor the placed token itself is updated:
+ * its prototype token is meaningless and changing it has no effect.
+ * @param {Actor} actor
+ * @param {Object} images
+ * @param {string|null} images.portraitPath
+ * @param {{path: string, ring: Object|null}|null} images.token
  */
-async function applyActorImages(actor, { portraitPath, tokenPath }) {
+async function applyActorImages(actor, { portraitPath, token }) {
   const syntheticToken = actor.isToken ? actor.token : null;
+  const tokenFields = token ? getTokenImageFields(token) : null;
 
   const actorUpdates = {};
   if (portraitPath) actorUpdates.img = portraitPath;
-  if (tokenPath && !syntheticToken) actorUpdates['prototypeToken.texture.src'] = tokenPath;
+  if (tokenFields && !syntheticToken) {
+    for (const [key, value] of Object.entries(tokenFields)) {
+      actorUpdates[`prototypeToken.${key}`] = value;
+    }
+  }
 
   if (Object.keys(actorUpdates).length > 0) {
     await actor.update(actorUpdates);
   }
-  if (tokenPath && syntheticToken) {
-    await syntheticToken.update({ 'texture.src': tokenPath });
+  if (tokenFields && syntheticToken) {
+    await syntheticToken.update(tokenFields);
   }
 
   if (portraitPath) ui.notifications.info(`${MODULE_NAME}: Actor image updated`);
-  if (tokenPath) ui.notifications.info(`${MODULE_NAME}: Token image updated`);
+  if (token) ui.notifications.info(`${MODULE_NAME}: Token image updated`);
 }
 
 /**
  * Verify a Runware API key and notify the caller's client of the result.
- * Called from the `apiKey` setting's `onChange`, which guards on
- * `game.user.isGM` before calling this.
+ * Called from the `apiKey` setting's `onChange` (see settings.js), which
+ * guards on `game.user.isGM` before calling this.
  *
  * Uses checkRunwareApiKey() rather than the SDK's own `Runware.initialize()`
  * - see runware-connection.js for why that path can take up to a minute to
@@ -476,40 +604,6 @@ async function validateApiKey(apiKey) {
   } catch (error) {
     console.error(`${MODULE_NAME} | Runware API key validation failed:`, error);
     ui.notifications.error(`${MODULE_NAME}: Runware API key could not be verified - ${getRunwareErrorMessage(error)}`);
-  }
-}
-
-async function removeBackgroundFromImage(imageData) {
-  try {
-    const runware = await getRunwareClient(game.settings.get(MODULE_ID, 'apiKey'));
-
-    const inputImage = imageData?.imageUUID
-      ?? imageData?.imageDataURI
-      ?? (getImageSrc(imageData) || undefined);
-
-    if (!inputImage) {
-      throw new Error('No image data available for background removal.');
-    }
-
-    const response = await runware.removeImageBackground({
-      inputImage,
-      model: BACKGROUND_REMOVAL_MODEL,
-      outputType: 'base64Data',
-      outputFormat: 'PNG',
-    });
-
-    const result = Array.isArray(response) ? response[0] : response;
-    // Without new base64 data, merging the result into the original would
-    // silently save the un-removed image as if removal had worked.
-    if (!result?.imageBase64Data) {
-      throw new Error('Background removal did not return an image.');
-    }
-
-    return result;
-  } catch (error) {
-    console.error(`${MODULE_NAME} | Background removal failed:`, error);
-    ui.notifications.error(`${MODULE_NAME}: Background removal failed - ${getRunwareErrorMessage(error)}`);
-    return null;
   }
 }
 

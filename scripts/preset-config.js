@@ -2,7 +2,7 @@
  * Runware Preset Configuration Form
  */
 
-import { MODULE_ID, MODULE_NAME } from './constants.js';
+import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 
 export class RunwarePresetConfig extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2
@@ -61,7 +61,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     }
 
     return {
-      presets: this.presets.map((preset) => this._clonePreset(preset))
+      presets: this.presets.map((preset) => this._clonePreset(preset)),
+      limits: LIMITS
     };
   }
 
@@ -151,6 +152,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       model: preset.model ?? '',
       width: this._coerceDimension(preset.width),
       height: this._coerceDimension(preset.height),
+      steps: this._coerceSteps(preset.steps),
+      cfgScale: this._coerceCfgScale(preset.cfgScale),
       lora: {
         model: preset.lora?.model ?? '',
         weight: this._coerceNumber(preset.lora?.weight, 1),
@@ -175,6 +178,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       model: preset.model,
       width: Number.isFinite(preset.width) ? preset.width : '',
       height: Number.isFinite(preset.height) ? preset.height : '',
+      steps: Number.isFinite(preset.steps) ? preset.steps : '',
+      cfgScale: Number.isFinite(preset.cfgScale) ? preset.cfgScale : '',
       lora: {
         model: preset.lora?.model ?? '',
         weight: preset.lora?.weight ?? 1,
@@ -216,6 +221,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
         model: '',
         width: null,
         height: null,
+        steps: null,
+        cfgScale: null,
         lora: { model: '', weight: 1, trigger: '' },
         vae: '',
         embeddings: []
@@ -274,6 +281,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     const modelInput = row.querySelector('input[name="preset-model"]');
     const widthInput = row.querySelector('input[name="preset-width"]');
     const heightInput = row.querySelector('input[name="preset-height"]');
+    const stepsInput = row.querySelector('input[name="preset-steps"]');
+    const cfgScaleInput = row.querySelector('input[name="preset-cfg-scale"]');
     const loraModelInput = row.querySelector('input[name="preset-lora-model"]');
     const loraWeightInput = row.querySelector('input[name="preset-lora-weight"]');
     const loraTriggerInput = row.querySelector('input[name="preset-lora-trigger"]');
@@ -294,6 +303,8 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       model: modelInput?.value.trim() ?? '',
       width: widthInput?.value ?? '',
       height: heightInput?.value ?? '',
+      steps: stepsInput?.value ?? '',
+      cfgScale: cfgScaleInput?.value ?? '',
       lora: {
         model: loraModelInput?.value.trim() ?? '',
         weight: loraWeightInput?.value ?? 1,
@@ -334,6 +345,16 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       preset.height = height;
     }
 
+    const steps = this._coerceSteps(fields.steps);
+    if (steps !== null) {
+      preset.steps = steps;
+    }
+
+    const cfgScale = this._coerceCfgScale(fields.cfgScale);
+    if (cfgScale !== null) {
+      preset.cfgScale = cfgScale;
+    }
+
     if (fields.lora.model) {
       preset.lora = {
         model: fields.lora.model,
@@ -358,6 +379,26 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
     }
 
     return preset;
+  }
+
+  /**
+   * Blank means "not set by this preset" (null). Out-of-range values are
+   * clamped to LIMITS, as generation would clamp them anyway.
+   */
+  _coerceLimited(value, { min, max }) {
+    const num = this._coerceNumber(value, null);
+    if (num === null) return null;
+    return Math.min(max, Math.max(min, num));
+  }
+
+  _coerceSteps(value) {
+    const steps = this._coerceLimited(value, LIMITS.steps);
+    return steps === null ? null : Math.round(steps);
+  }
+
+  _coerceCfgScale(value) {
+    const cfgScale = this._coerceLimited(value, LIMITS.cfgScale);
+    return cfgScale === null ? null : Math.round(cfgScale * 100) / 100;
   }
 
   _coerceDimension(value) {
