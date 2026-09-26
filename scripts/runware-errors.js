@@ -17,6 +17,8 @@
  * callers want to react to with a more actionable message.
  */
 
+import { RUNWARE_RESULT_TIMEOUT_MS } from './constants.js';
+
 function extractErrorDetail(error) {
   if (!error || typeof error !== 'object') return null;
   if (error.error && typeof error.error === 'object') return error.error;
@@ -24,9 +26,20 @@ function extractErrorDetail(error) {
   return null;
 }
 
+// The SDK rejects with this bare string when a task's result doesn't arrive
+// within its timeoutDuration (see runware-client.js).
+const SDK_TIMEOUT_PREFIX = 'Response could not be received from server';
+
 export function getRunwareErrorMessage(error) {
   const detail = extractErrorDetail(error);
   if (detail?.message) return detail.message;
+
+  if (typeof error === 'string' && error.startsWith(SDK_TIMEOUT_PREFIX)) {
+    const minutes = Math.round(RUNWARE_RESULT_TIMEOUT_MS / 60000);
+    return `Runware did not return the result within ${minutes} minutes. It may still show up in `
+      + 'your Runware dashboard, but it was not received here. Try fewer steps, a smaller size or '
+      + 'fewer images.';
+  }
 
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error) return error;

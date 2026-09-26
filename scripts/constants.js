@@ -15,6 +15,23 @@ export const LIMITS = Object.freeze({
   subjectScale: { min: 0.5, max: 3, step: 0.05, fallback: 1 }
 });
 
+// How long the Runware SDK waits for a task's result (image generation,
+// background removal). The SDK default of 60 s is shorter than a slow
+// generation (many steps, large sizes, a queue), after which the result is
+// thrown away although Runware still delivers - and bills - it.
+export const RUNWARE_RESULT_TIMEOUT_MS = 5 * 60 * 1000;
+
+// How long downloading one finished image from Runware's CDN may take. Results
+// arrive as a URL and are downloaded (see runware-client.js), not as base64.
+export const RUNWARE_DOWNLOAD_TIMEOUT_MS = 2 * 60 * 1000;
+
+// Mouse framing of the subject inside the token (drag to move, wheel to zoom).
+// zoom multiplies the subject's box; offsets are fractions of the token edge.
+export const TOKEN_FRAMING = Object.freeze({
+  zoom: { min: 0.25, max: 4, fallback: 1 },
+  offset: { min: -1, max: 1, fallback: 0 }
+});
+
 // Composited token edge, in px.
 export const TOKEN_SIZE = 512;
 // Inner edge of a token ring as a fraction of the token's half-size. Foundry's
@@ -23,8 +40,9 @@ export const RING_INNER_RADIUS = 2 / 3;
 // Edge of the subject's box in a custom-ring token, as a fraction of TOKEN_SIZE,
 // so the subject sits inside the ring instead of under it.
 export const CUSTOM_RING_SUBJECT_SCALE = 2 / 3;
-// A baked-in background is clipped at RING_INNER_RADIUS + this, so it slides
-// under the ring's opaque band instead of leaving a transparent seam.
+// A baked-in background (custom ring) or a subject kept inside the ring is
+// clipped at RING_INNER_RADIUS + this, so it slides under the ring's opaque
+// band instead of leaving a transparent seam.
 export const CUSTOM_RING_BACKGROUND_OVERLAP = 0.04;
 // Square edge requested for a generated ring. Always passed through
 // clampDimension() before it reaches Runware.

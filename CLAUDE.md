@@ -47,12 +47,32 @@ Everything lives in `scripts/` (~4100 lines total):
 - **`output-dialog.js`** — `RunwareOutputDialog`, the "Use this image" window (portrait and token
   cards). It only builds an `OutputPlan`; `module.js` does the work through its `onApply` callback.
   It renders **once** - every later change is DOM work, because a re-render would wipe edits and
-  previews. Its `assetCache` comes from `handleGeneratedImage()` (one per picked image, rings and
+  previews. Its "Model for rings & backgrounds" select (`assetPreset`) picks a generation preset or
+  "Same as generation"; `_currentModelParams()` reads it at request time (ring generation and
+  `plan.modelParams`), and the `presetsUpdated` hook rebuilds its options in the DOM. A removed or
+  changed selected preset is warned about, never silently swapped for another model; a selection
+  that no longer exists, or no model at all, is a `_modelError()` that blocks Apply and both paid
+  buttons before anything is paid. Its `assetCache` comes from `handleGeneratedImage()` (one per picked image, rings and
   backgrounds shared between them), so retried Applies and "Back to images" never pay twice and
-  final images are saved once per identical plan (`saveOutputOnce()`).
+  final images are saved once per identical plan and background (`saveOutputOnce()`; the key
+  includes the background's request key and saved path). Its two paid buttons, "Generate ring"
+  and "Preview background" (portrait / token), fill that same cache: a previewed subject and
+  background are exactly the entries Apply reads, so Apply doesn't pay for them again. "Regenerate
+  background" `set`s a **new** entry object (never mutate a shared one); `getAssetCache()` lets the
+  last window's entries win when another image is picked. Once cached, the removed subject and
+  backgrounds are shown in the preview (data URIs cached per entry in a `WeakMap`, `src` only set
+  on change); after a prompt/model edit the last background stays, dimmed as `data-stale`.
+  `_isWorking()` (`_busy` = Apply, `_assetTask` = `'ring'`/`'background'`) blocks close, Back,
+  Apply, framing and the other paid button.
 - **`asset-generation.js`** — the paid calls behind that window: `removeBackground()`,
-  `generateRing()`, `generateBackground()`, plus prompt templating (`fillTemplate()`) and
-  `summarizePaidCalls()` for the Apply label. Never notifies; callers report its errors.
+  `generateRing()`, `generateBackground()`, plus prompt templating (`fillTemplate()`),
+  `presetToModelParams()` / `listPresets()` / `loadPresets()` (the last tells a failed settings
+  read from "no presets"), `hasImageModel()` (a free pre-check), and `summarizePaidCalls()` for the
+  Apply label (if it throws, the label says the paid calls could not be estimated).
+  `getBackgroundRequest(plan, 'portrait'|'token')` is the **only** place a background's request and
+  cache key are computed (the key includes the clamped model settings, so a preset switch never
+  reuses another model's background); the pricing, the dialog and `executeOutputPlan()` all go
+  through it. Never notifies; callers report its errors.
 - **`image-compositor.js`** — pure canvas code (no Foundry/Runware imports): `compositeLayers()`,
   `punchCircle()`, `loadBitmap()`. Only same-origin or data sources, so the canvas never taints.
 - **`token-ring.js`** — `getDynamicRingInfo()` (is a core dynamic ring available, and its label),
@@ -79,13 +99,15 @@ Everything lives in `scripts/` (~4100 lines total):
 sheet button → openImageGenerationDialog() [module.js]
   → RunwareImageDialog.render() → _onGenerate() → _generateImage() [dialog.js]
     → onImageGenerated(images, { removeBackground, prompt, modelParams, portraitSize })
+      (modelParams: the default for rings/backgrounds; the output window may pick a preset instead)
     → handleGeneratedImage() [module.js]
       → showImageSelectionDialog() (only when >1 image)
       → RunwareOutputDialog.wait() [output-dialog.js] → 'applied' | 'back' (re-pick) | 'cancelled'
-          "Generate ring" button: the only paid call before Apply (kept in assetCache, saved on Apply)
-        → Apply → executeOutputPlan() [module.js]
+          "Generate ring" / "Preview background" buttons: the only paid calls before Apply
+            (removal + background into the same assetCache entries Apply reuses, saved on Apply)
+        → Apply → executeOutputPlan() [module.js]  (plan.modelParams = the window's model choice)
           → removeBackground() once for every output that needs the subject (cached)
-          → generateBackground() for portrait / token, or one shared (cached)
+          → generateBackground() per getBackgroundRequest(): portrait / token, or one shared (cached)
           → compositeLayers() [image-compositor.js]
           → saveImage(): ring, backgrounds, portrait, token
           → applyActorImages()
@@ -94,8 +116,9 @@ sheet button → openImageGenerationDialog() [module.js]
 A throw from `executeOutputPlan()` keeps the output window open with the error; the window, not the
 executor, notifies. The Apply label lists the paid calls still to make (`summarizePaidCalls()`),
 which replaces the old "Set as Actor Image?" consent prompt. The generation form's "Remove
-Background" checkbox only preselects "Remove background" for the portrait. A generated ring is
-only saved on Apply, so Cancel after "Generate ring" discards that paid ring.
+Background" checkbox only preselects "Remove background" for the portrait. Generated rings and
+previewed backgrounds (and the removed subject) are only saved on Apply: "Back to images" keeps
+them in the cache, but Cancel or closing the window discards those paid results.
 
 ### Token rings
 
@@ -105,7 +128,7 @@ only saved on Apply, so Cancel after "Generate ring" discards that paid ring.
   no spritesheet. The core ring does **not** mask the subject, so a baked-in background is clipped
   to `RING_INNER_RADIUS / subjectScale` or it would cover the ring.
 - **Custom ring**: generated, background-removed, centre punched (`punchCircle`), then **baked**
-  into a static `TOKEN_SIZE` PNG with `ring.enabled = false`. Registering it as a world ring was
+  into a static `TOKEN_SIZE` WebP with `ring.enabled = false`. Registering it as a world ring was
   rejected: ring styles are world-global and registration only happens at startup, needing a reload.
 - No ring / custom ring set `ring.enabled = false`, so "No ring" switches off an existing ring.
 - The world setting `core.prototypeTokenOverrides` can force ring settings per actor type and beats
@@ -116,21 +139,28 @@ only saved on Apply, so Cancel after "Generate ring" discards that paid ring.
 `ImageFileHandler.saveImage(actor, imageData, { type })` writes to the Foundry **data** root, not
 the module folder:
 
-- `avatar` (portrait): `images/runware/<slug>_<actorId>/image_N.png`
-- `token`: `images/runware/<slug>_<actorId>/tokens/token_N.png` (or the dynamic ring's subject texture)
-- `background`: `images/runware/<slug>_<actorId>/backgrounds/background_N.png` (raw, kept for reuse)
-- `ring`: `images/runware/rings/ring_N.png` — world-shared, `actor` is ignored; every actor's picker
+- `avatar` (portrait): `images/runware/<slug>_<actorId>/image_N.webp`
+- `token`: `images/runware/<slug>_<actorId>/tokens/token_N.webp` (or the dynamic ring's subject texture)
+- `background`: `images/runware/<slug>_<actorId>/backgrounds/background_N.webp` (raw, kept for reuse)
+- `ring`: `images/runware/rings/ring_N.webp` — world-shared, `actor` is ignored; every actor's picker
   lists them
 
 A transparent token with a "Remove background" portrait reuses the portrait file instead of
 uploading a duplicate.
+
+**Everything is saved as WebP.** Runware returns WebP (`outputFormat: 'WEBP'` in
+`RUNWARE_OUTPUT_PARAMS`), the compositor encodes WebP (quality 0.92, alpha lossless), and
+`saveImage()` re-encodes anything else through `convertToWebp()`. The extension comes from the
+bytes (`detectImageMimeType()`), never assumed: a browser without a WebP encoder falls back to PNG
+and that file is saved as `.png`. Numbering counts `.webp`, `.png` and `.jpg`, so pre-WebP PNGs
+aren't overwritten or restarted from 1.
 
 `ImageFileHandler.getActorFolderName()` builds the folder name: a transliterated slug plus the actor
 id, so actors with the same name no longer share a folder (before v1.0.0 it was the bare slug).
 `N` is `max + 1` over the listing that `_ensureDirectory()` returns, so each save browses once.
 
 `_ensureDirectory()` deliberately does **not** swallow a failed final browse: treating it as an
-empty folder would restart at `1` and overwrite an existing `image_1.png`. A `getActorImages()` helper used to live here
+empty folder would restart at `1` and overwrite an existing `image_1.webp`. A `getActorImages()` helper used to live here
 with a stale path; it was unused and was removed in v0.9.0.
 
 ## Foundry conventions to follow
@@ -169,7 +199,17 @@ The same defensive style (`foundry?.applications?.…` with fallbacks) is used t
 dynamic `import()` can't carry an SRI hash, so a floating range would run any new or hijacked
 upstream release unreviewed. Bump it deliberately, after testing. The `@runware/sdk-js` entry in
 `package.json` is a `peerDependency` for documentation only; it is not installed into the shipped
-module. Background removal uses the model in the `backgroundRemovalModel` world setting
+module. `Runware.initialize()` gets `timeoutDuration: RUNWARE_RESULT_TIMEOUT_MS` (5 min) and
+`globalMaxRetries: 1`: with the SDK defaults (60 s, 2 attempts) a slow generation timed out, was
+re-sent and billed again, and its result never reached Foundry. Don't drop either option.
+**Never request `outputType: 'base64Data'` (or `dataURI`).** Runware silently never delivers a
+websocket result with a large inline image - a 1344x2048 PNG (~11 MB of base64) produced no
+result and no error frame, while the same request as `URL` answered in seconds. Every image task
+spreads `RUNWARE_OUTPUT_PARAMS` (`outputType: 'URL'`) and passes its result through
+`downloadRunwareImage()` (`runware-client.js`), which fetches only `https://*.runware.ai` (the CDN
+sends `Access-Control-Allow-Origin: *`) and adds `imageBase64Data`, the shape everything
+downstream uses.
+Background removal uses the model in the `backgroundRemovalModel` world setting
 (`getBackgroundRemovalModel()`, default `bria:2@1`). The old `runware:110@1` was shut down by
 Runware on 2026-06-30.
 

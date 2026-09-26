@@ -28,6 +28,19 @@
             <small>Specify width and height overrides when this preset is applied.</small>
           </div>
 
+          <div class="form-group dimension-group">
+            <label>Steps and CFG Scale (Optional)</label>
+            <div class="dimension-inputs">
+              <input type="number" name="preset-steps" value="{{this.steps}}" placeholder="Steps"
+                aria-label="Inference steps" title="Inference steps"
+                min="{{@root.limits.steps.min}}" max="{{@root.limits.steps.max}}" step="1">
+              <input type="number" name="preset-cfg-scale" value="{{this.cfgScale}}" placeholder="CFG scale"
+                aria-label="CFG scale" title="CFG scale"
+                min="{{@root.limits.cfgScale.min}}" max="{{@root.limits.cfgScale.max}}" step="0.5">
+            </div>
+            <small>Inference steps ({{@root.limits.steps.min}}-{{@root.limits.steps.max}}) and CFG scale ({{@root.limits.cfgScale.min}}-{{@root.limits.cfgScale.max}}). Leave blank to use the model's defaults.</small>
+          </div>
+
           <div class="form-group">
             <label>LoRA (Optional)</label>
             <div class="lora-group">

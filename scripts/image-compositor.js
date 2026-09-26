@@ -3,7 +3,7 @@
  *
  * Runware returns separate layers (the background-free subject, a generated
  * background, a generated ring), and the module stacks, clips, and scales them
- * into one PNG. That happens here, in the browser, rather than as another
+ * into one WebP. That happens here, in the browser, rather than as another
  * Runware task: canvas work is free, instant, and deterministic, whereas every
  * Runware request costs money and would regenerate (and change) the pixels.
  *
@@ -18,13 +18,13 @@
 
 /**
  * @typedef {{ imageBase64Data: string }} Base64Image
- * Raw base64 PNG; a "data:" prefix is tolerated on input.
+ * Raw base64 image data (WebP, PNG or JPEG); a "data:" prefix is tolerated on input.
  */
 
 /**
  * @typedef {ImageBitmap|Blob|Base64Image|string} ImageSource
  * A string is a data: URI OR a same-origin path/URL (e.g. the Foundry data path
- * "images/runware/rings/ring_3.png"). Raw base64 must be wrapped as
+ * "images/runware/rings/ring_3.webp"). Raw base64 must be wrapped as
  * `{ imageBase64Data }`; a bare string is never treated as base64.
  */
 
@@ -33,6 +33,8 @@
  * @property {ImageSource} src - The image to draw.
  * @property {'cover'|'contain'|'stretch'} [fit='contain'] - How the image fills its box.
  * @property {number} [scale=1] - Box edge as a fraction of the output size, centred.
+ * @property {number} [offsetX=0] - Box shift as a fraction of the output width.
+ * @property {number} [offsetY=0] - Box shift as a fraction of the output height.
  * @property {number|null} [clipCircle=null] - Clip radius as a fraction of
  *   min(width, height) / 2, centred; clamped to at most 1.
  */
@@ -76,7 +78,7 @@ export async function getImageSize(src) {
 }
 
 /**
- * Stack layers bottom -> top into one PNG of the given size.
+ * Stack layers bottom -> top into one WebP of the given size.
  * Falsy entries in `layers` are skipped, so callers can write
  * `[background && {...}, subject, ring]`.
  * @param {object} options
@@ -109,8 +111,10 @@ export async function compositeLayers({ width, height, layers }) {
         width: outputWidth * scale,
         height: outputHeight * scale
       };
-      box.x = (outputWidth - box.width) / 2;
-      box.y = (outputHeight - box.height) / 2;
+      const offsetX = Number.isFinite(layer.offsetX) ? layer.offsetX : 0;
+      const offsetY = Number.isFinite(layer.offsetY) ? layer.offsetY : 0;
+      box.x = (outputWidth - box.width) / 2 + offsetX * outputWidth;
+      box.y = (outputHeight - box.height) / 2 + offsetY * outputHeight;
 
       const rect = fitRect(bitmap.width, bitmap.height, box, layer.fit);
       const clip = Number(layer.clipCircle);
@@ -133,7 +137,7 @@ export async function compositeLayers({ width, height, layers }) {
       ctx.restore();
     });
 
-    return await exportPng(canvas);
+    return await exportImage(canvas);
   } finally {
     // Close only the bitmaps decoded here, never ones the caller passed in.
     bitmaps.forEach((bitmap, index) => {
@@ -182,16 +186,58 @@ export async function punchCircle(src, innerRadius, { outerRadius = null } = {})
     }
 
     ctx.globalCompositeOperation = 'source-over';
-    return await exportPng(canvas);
+    return await exportImage(canvas);
   } finally {
     if (bitmap !== src) bitmap.close();
   }
 }
 
 /**
- * Turn base64 image data into a PNG data URI, e.g. for an <img> src or a
+ * Re-encode an image as WebP (same size, alpha kept). Returns the input
+ * unchanged when it already is WebP.
+ * @param {Base64Image} image
+ * @returns {Promise<Base64Image>} WebP, or PNG in a browser that can't encode
+ *   WebP - check with detectImageMimeType()
+ */
+export async function convertToWebp(image) {
+  if (detectImageMimeType(image?.imageBase64Data) === 'image/webp') return image;
+  const bitmap = await loadBitmap(image);
+  try {
+    const { canvas, ctx } = createCanvas(bitmap.width, bitmap.height);
+    ctx.drawImage(bitmap, 0, 0);
+    return await exportImage(canvas);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
+ * The image format of base64 data (bare, or a data: URI), read from the file
+ * signature rather than trusted from a data: prefix.
+ * @param {string} data
+ * @returns {'image/webp'|'image/png'|'image/jpeg'|null} null when unrecognised
+ */
+export function detectImageMimeType(data) {
+  if (typeof data !== 'string') return null;
+  const payload = data.trim().replace(/^data:[^,]*,/i, '');
+  let header;
+  try {
+    // 16 base64 characters decode to the first 12 bytes.
+    header = atob(payload.slice(0, 16));
+  } catch {
+    return null;
+  }
+  if (header.startsWith('RIFF') && header.slice(8, 12) === 'WEBP') return 'image/webp';
+  if (header.startsWith('\x89PNG')) return 'image/png';
+  if (header.startsWith('\xFF\xD8\xFF')) return 'image/jpeg';
+  return null;
+}
+
+/**
+ * Turn base64 image data into a data URI, e.g. for an <img> src or a
  * Runware `inputImage`. A string that already is a data: URI is returned
- * as-is; any other string is taken to be raw base64.
+ * as-is; any other string is taken to be raw base64, and its MIME type is
+ * read from the data itself.
  * @param {Base64Image|string} image
  * @returns {string} The data URI, or '' when there is no image data.
  */
@@ -201,12 +247,16 @@ export function toDataURI(image) {
   const trimmed = data.trim();
   if (!trimmed) return '';
   if (/^data:/i.test(trimmed)) return trimmed;
-  return `data:image/png;base64,${trimmed}`;
+  return `data:${detectImageMimeType(trimmed) ?? 'image/webp'};base64,${trimmed}`;
 }
 
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+// Lossy colour only: libwebp encodes the alpha channel losslessly by default,
+// so cut-out edges and punched ring centres stay exact.
+const WEBP_QUALITY = 0.92;
 
 function isImageBitmap(value) {
   return typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap;
@@ -258,8 +308,8 @@ function base64ToBlob(data) {
     throw new Error('No image data to decode.');
   }
 
-  let mimeType = 'image/png';
   let payload = data.trim();
+  let mimeType = detectImageMimeType(payload) ?? 'image/webp';
   let isBase64 = true;
 
   const match = /^data:([^,]*),/i.exec(payload);
@@ -366,11 +416,13 @@ function configureContext(ctx) {
 }
 
 /**
- * Encode a canvas as PNG and return its bare base64.
+ * Encode a canvas as WebP and return its bare base64. A browser that can't
+ * encode WebP silently falls back to PNG; ImageFileHandler.saveImage() names
+ * the file after the format it actually gets.
  * @param {OffscreenCanvas|HTMLCanvasElement} canvas
  * @returns {Promise<Base64Image>}
  */
-async function exportPng(canvas) {
+async function exportImage(canvas) {
   const blob = await canvasToBlob(canvas);
   const dataUrl = await blobToDataURL(blob);
   const comma = dataUrl.indexOf(',');
@@ -381,7 +433,7 @@ async function exportPng(canvas) {
 
 function canvasToBlob(canvas) {
   if (typeof canvas.convertToBlob === 'function') {
-    return canvas.convertToBlob({ type: 'image/png' });
+    return canvas.convertToBlob({ type: 'image/webp', quality: WEBP_QUALITY });
   }
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -389,7 +441,7 @@ function canvasToBlob(canvas) {
       // large or can't be encoded.
       if (blob) resolve(blob);
       else reject(new Error('Could not export the composited image.'));
-    }, 'image/png');
+    }, 'image/webp', WEBP_QUALITY);
   });
 }
 

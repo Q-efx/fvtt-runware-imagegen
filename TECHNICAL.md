@@ -62,15 +62,39 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 - **Token card**: No ring / Foundry dynamic ring / Custom ring (picker plus "Generate new ring…"),
   and a token background: transparent, solid colour (dynamic ring only), or generated
 - **Renders once**: Visibility, the CSS preview and the Apply label are updated through the DOM, so
-  a re-render never wipes the user's edits or the generated ring preview
+  a re-render never wipes the user's edits or the generated ring and background previews
+- **Background previews**: "Preview background" under the portrait's and the token's background
+  prompt (the portrait's serves both while the token uses the portrait's background) is paid: the
+  subject's background removal unless it is cached, plus one background generation. Both are
+  stored in `assetCache` under `SUBJECT_CACHE_KEY` and `getBackgroundRequest().key`, the entries
+  `executeOutputPlan()` reads, so Apply reuses them and its label drops them. The button shows its
+  price and turns into "Regenerate background" once the current request is cached; a regeneration
+  stores a new entry object. The preview then shows the real subject, the background behind the
+  portrait (the `<img>`'s own cover-fit CSS background) and inside the token's background layer.
+  After a prompt or model edit the last background stays visible, dimmed and marked "outdated", and
+  Apply generates a new one; reverting the edit makes it current again
+- **Model for rings & backgrounds**: a `select[name="assetPreset"]` above the cards: "Same as
+  generation" or a generation preset (`loadPresets()`). `_currentModelParams()` reads it at request
+  time for "Generate ring", "Preview background" and `_readPlan()` (`plan.modelParams`, always set;
+  `executeOutputPlan()` throws without it). The options are rebuilt in the DOM on the
+  `runware-imagegen.presetsUpdated` hook; removing or changing the selected preset shows a warning
+  instead of silently switching models, and a failed settings read keeps the current list. A
+  selected preset that no longer exists, or no model at all, is an error (`_modelError()`) for Apply
+  and both paid buttons, checked before anything is paid. GMs get a "Manage presets" button
 - **Plan, not work**: `_readPlan()` builds an `OutputPlan`; the `onApply` callback from `module.js`
-  does the work. The dialog shows its errors and stays open. X, Escape and Cancel are blocked while
-  Apply or a ring generation is running
+  does the work. The dialog shows its errors and stays open. X, Escape, Cancel and Back are blocked
+  while Apply, a ring generation or a background preview is running (`_isWorking()`)
 
 #### 9. Asset Generation (`scripts/asset-generation.js`)
 - **Paid calls**: `removeBackground()`, `generateRing()`, `generateBackground()`. Ring and background
   requests reuse the generation form's model, LoRA, VAE, embeddings, steps and CFG scale (not the
-  seed), re-clamped against `LIMITS`
+  seed), or those of the preset picked in the window, re-clamped against `LIMITS`
+- **Presets**: `presetToModelParams()` turns a stored preset into the same ModelParams a generation
+  with that preset sends (without the LoRA trigger); `listPresets()` lists the valid ones by name,
+  and `loadPresets()` reads the setting, reporting a failed read separately from "no presets"
+- **Background requests**: `getBackgroundRequest(plan, 'portrait'|'token')` is the one place a
+  background's prompts, size, model settings and cache key are computed (a token sharing the
+  portrait's background gets the portrait's request); the pricing and `executeOutputPlan()` use it
 - **Prompt templates**: `fillTemplate()` fills `{material}`, `{scene}` and `{prompt}`; unknown
   placeholders are left as-is so a typo stays visible
 - **Pricing**: `summarizePaidCalls()` counts the removals and background generations an Apply will
@@ -78,7 +102,7 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 
 #### 10. Image Compositor (`scripts/image-compositor.js`)
 - **Pure canvas code**: `compositeLayers()` stacks layers (`cover` / `contain` / `stretch` fit,
-  scale, circular clip); `punchCircle()` cuts a ring's centre and everything outside it
+  scale, offset, circular clip); `punchCircle()` cuts a ring's centre and everything outside it
 - **No tainted canvas**: base64 and data URIs are decoded locally, same-origin paths are fetched,
   cross-origin URLs are refused
 - **Fallback**: `OffscreenCanvas` when available, otherwise a detached `<canvas>`
@@ -120,9 +144,11 @@ _generateImage() called
     ↓
 Runware SDK loaded (if not already)
     ↓
-runware.requestImages() with parameters
+runware.requestImages() with parameters (outputType URL)
     ↓
-API returns base64 image data
+API returns an image URL
+    ↓
+downloadRunwareImage() fetches it as base64
 ```
 
 ### 4. Image Chosen, Built, and Applied
@@ -134,7 +160,8 @@ handleGeneratedImage() called
 User picks one image (DialogV2, only when >1)
     ↓
 RunwareOutputDialog: portrait + token options (nothing paid or saved yet,
-except an explicit "Generate ring")
+except an explicit "Generate ring" or "Preview background", whose results
+Apply reuses; Cancel discards them)
     ↓
 Apply → executeOutputPlan()
     ↓
@@ -142,7 +169,7 @@ removeBackground() once, if any output needs the bare subject
     ↓
 generateBackground() for the portrait and/or token (or one shared)
     ↓
-compositeLayers() builds the portrait and token PNGs in the browser
+compositeLayers() builds the portrait and token WebPs in the browser
     ↓
 ImageFileHandler.saveImage(): ring, backgrounds, portrait, token
     ↓
@@ -155,7 +182,16 @@ when the user cancels, so the generation dialog keeps its prompt.
 ### 5. How Each Output Is Built
 
 Composited tokens are `TOKEN_SIZE` (512px) squares. Transparent tokens without a baked-in
-background or custom ring are the removed subject at its native size.
+background, custom ring or framing are the removed subject at its native size.
+
+The token subject's framing (`token.framing`: `zoom`, `offsetX`, `offsetY`, clamped to
+`TOKEN_FRAMING` by `clampTokenFraming()`) is set by dragging and wheeling on the token preview. The
+compositor multiplies the subject box by `zoom` and shifts it by the offsets (fractions of the token
+edge). With `token.clipSubject` ("Keep the character inside the ring", dynamic and custom rings)
+the subject is clipped at `RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP` (divided by the
+dynamic ring's `subject.scale`), just under the band: the core ring does not mask its subject, so
+anything outside it would be drawn over the map. Without it, a custom-ring subject is still clipped
+to the token circle. A dynamic ring's `subject.scale` still applies on top, in Foundry.
 
 | Output | Layers (bottom → top) | Document fields |
 | --- | --- | --- |
@@ -185,10 +221,12 @@ flow runs (Cancel ends it):
 
 - `subject`: the background-removed subject, shared by portrait and token (at most one removal per
   picked image)
-- `background:<width>x<height>:<prompt>…`: each generated background, keyed by size and prompts, so
-  identical portrait and token requests are paid once
+- `background:<width>x<height>:<model settings>…<prompt>…`: each generated background, keyed by
+  size, clamped model settings and prompts (`getBackgroundRequest()`), so identical portrait and
+  token requests are paid once and a background is never reused for another model or preset
 - `ring:<n>`: the last generated ring (regenerating replaces it)
 - `output:portrait:…` / `output:token:…`: the saved path of a final image for an identical plan
+  and background request
 
 Rings and backgrounds are shared between the caches of all picked images, so **Back to images** and
 picking again never pays for them twice. If Apply fails (for example a failed upload or actor
@@ -296,13 +334,13 @@ Data/
 └── images/
     └── runware/
         ├── [actor-name]_[actor-id]/
-        │   ├── image_N.png
+        │   ├── image_N.webp
         │   ├── tokens/
-        │   │   └── token_N.png
+        │   │   └── token_N.webp
         │   └── backgrounds/
-        │       └── background_N.png
+        │       └── background_N.webp
         └── rings/
-            └── ring_N.png      # shared by every actor
+            └── ring_N.webp     # shared by every actor
 ```
 
 ## Security Considerations
@@ -320,7 +358,9 @@ Data/
 ## Performance Optimizations
 
 1. **Lazy Loading**: Runware SDK loaded only when needed
-2. **Base64 Output**: Images received as base64 to avoid CORS issues
+2. **URL Output, Downloaded**: Images are requested as a URL and downloaded as base64
+   (`downloadRunwareImage()`); Runware never delivers a large inline base64 result over the
+   websocket, and its image CDN allows cross-origin downloads
 3. **Sequential Numbering**: Efficient file naming without conflicts
 4. **Async Operations**: Non-blocking UI during generation
 5. **State Management**: Prevents multiple simultaneous requests
@@ -408,7 +448,7 @@ buttons.push({...})     // End of array
 ### Custom Image Naming
 Edit in `file-handler.js`:
 ```javascript
-const filename = `custom_name_${imageNumber}.png`;
+const filename = `custom_name_${imageNumber}.${FILE_EXTENSIONS[mimeType]}`;
 ```
 
 ## Troubleshooting Development

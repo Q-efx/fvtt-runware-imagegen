@@ -4,10 +4,10 @@
     <div class="runware-output-layout">
 
       <!-- Preview (presentational only; output-dialog.js fills the images) -->
-      <div class="runware-output-preview" aria-hidden="true">
+      <div class="runware-output-preview">
         <div class="runware-preview-block" data-preview-block="portrait">
           <h4>Portrait</h4>
-          <div class="runware-portrait-preview">
+          <div class="runware-portrait-preview" aria-hidden="true">
             <img data-preview="portrait" alt="" />
           </div>
           <small data-preview-caption="portrait"></small>
@@ -15,11 +15,24 @@
 
         <div class="runware-preview-block" data-preview-block="token">
           <h4>Token</h4>
-          <div class="runware-token-preview" data-ring="{{defaultTokenRing}}" data-background="transparent">
-            <div class="token-bg" data-preview="token-bg" hidden><span>generated</span></div>
-            <img class="token-subject" data-preview="token-subject" alt="" />
+          <div class="runware-token-preview" data-ring="{{defaultTokenRing}}" data-background="transparent"
+            data-token-framing aria-hidden="true" title="Drag to move, scroll to zoom, double-click to reset">
+            <div class="token-bg" data-preview="token-bg" hidden>
+              <img class="token-bg-image" data-preview="token-bg-image" alt="" draggable="false" hidden />
+              <span data-preview="token-bg-placeholder">generated</span>
+            </div>
+            <div class="token-subject-clip" data-preview="token-subject-clip">
+              <img class="token-subject" data-preview="token-subject" alt="" draggable="false" />
+            </div>
             <div class="token-ring" data-preview="token-ring-dynamic" hidden></div>
-            <img class="token-ring-image" data-preview="token-ring" alt="" hidden />
+            <img class="token-ring-image" data-preview="token-ring" alt="" draggable="false" hidden />
+          </div>
+          <div class="runware-token-framing">
+            <small>Drag to move, scroll to zoom.</small>
+            <span class="runware-token-framing-zoom" data-framing-zoom>100%</span>
+            <button type="button" data-action="resetTokenFraming" title="Reset position and zoom" aria-label="Reset token position and zoom">
+              <i class="fas fa-rotate-left"></i>
+            </button>
           </div>
           <small data-preview-caption="token"></small>
         </div>
@@ -28,6 +41,30 @@
       </div>
 
       <div class="runware-output-cards">
+
+        <!-- Model for everything generated here (output-dialog.js keeps the options and note in sync) -->
+        <div class="runware-form-section runware-output-model">
+          <div class="runware-form-group">
+            <label for="{{partId}}-assetPreset"><i class="fas fa-brain"></i> Model for rings &amp; backgrounds</label>
+            <div class="runware-output-model-controls">
+              <select name="assetPreset" id="{{partId}}-assetPreset">
+                <option value="" selected>Same as generation{{#if generationModel}} ({{generationModel}}){{/if}}</option>
+                {{#each assetPresets}}
+                <option value="{{this.id}}">{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{#if canManagePresets}}
+              <button type="button" data-action="managePresets" title="Manage presets" aria-label="Manage presets">
+                <i class="fas fa-sliders-h"></i>
+              </button>
+              {{/if}}
+            </div>
+            <small data-asset-model-note></small>
+            <small data-asset-lora-hint hidden></small>
+            <small data-asset-presets-empty {{#if assetPresets.length}}hidden{{else}}{{#unless presetsLoaded}}hidden{{/unless}}{{/if}}>No presets defined.</small>
+            <small data-asset-presets-error {{#if presetsLoaded}}hidden{{/if}}>Presets could not be loaded.</small>
+          </div>
+        </div>
 
         <!-- Portrait -->
         <div class="runware-form-section runware-output-card" data-output="portrait">
@@ -63,6 +100,12 @@
                 <small>Generation prompt: {{generationPrompt}}</small>
                 {{/if}}
               </div>
+              <div class="runware-form-group runware-background-preview-row">
+                <button type="button" data-action="previewBackground" data-target="portrait">
+                  <i class="fas fa-image"></i> <span data-preview-background-label>Preview background (paid: 1 image + 1 background removal)</span>
+                </button>
+                <small>Uses the model chosen at the top. Apply reuses the previewed background and saves it.</small>
+              </div>
             </div>
           </div>
         </div>
@@ -91,6 +134,14 @@
               </div>
               <small class="runware-output-note">A GM's prototype token overrides (core.prototypeTokenOverrides) can force ring settings per actor type and win over these choices.</small>
             </fieldset>
+
+            <div class="runware-form-group" data-section="clip-subject">
+              <label class="runware-checkbox">
+                <input type="checkbox" name="clipSubject" checked />
+                Keep the character inside the ring
+              </label>
+              <small>Cuts off whatever reaches past the ring. Untick to let the character break out of the frame.</small>
+            </div>
 
             <!-- Foundry dynamic ring -->
             <div class="runware-output-subsection" data-section="dynamic-options">
@@ -144,7 +195,7 @@
                 <div class="runware-form-group">
                   <label for="{{partId}}-ringNegativePrompt">Ring negative prompt</label>
                   <textarea name="ringNegativePrompt" id="{{partId}}-ringNegativePrompt">{{ringNegativePrompt}}</textarea>
-                  <small>Uses the model and settings of the generation form. The ring is saved to the world's ring folder on Apply.</small>
+                  <small>Uses the model chosen at the top. The ring is saved to the world's ring folder on Apply.</small>
                 </div>
                 <div class="runware-ring-generate-row">
                   <button type="button" data-action="generateRing">
@@ -201,6 +252,12 @@
                 <label for="{{partId}}-tokenBackgroundNegativePrompt">Token background negative prompt</label>
                 <textarea name="tokenBackgroundNegativePrompt" id="{{partId}}-tokenBackgroundNegativePrompt">{{backgroundNegativePrompt}}</textarea>
                 <small>Clipped to the ring's inner circle, behind the character.{{#if generationPrompt}} Generation prompt: {{generationPrompt}}{{/if}}</small>
+              </div>
+              <div class="runware-form-group runware-background-preview-row">
+                <button type="button" data-action="previewBackground" data-target="token">
+                  <i class="fas fa-image"></i> <span data-preview-background-label>Preview background (paid: 1 image + 1 background removal)</span>
+                </button>
+                <small>Uses the model chosen at the top. Apply reuses the previewed background and saves it.</small>
               </div>
             </div>
           </div>

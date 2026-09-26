@@ -23,7 +23,7 @@ import {
   DEFAULT_BACKGROUND_PROMPT_TEMPLATE,
   DEFAULT_BACKGROUND_NEGATIVE_PROMPT_TEMPLATE
 } from './constants.js';
-import { getRunwareClient } from './runware-client.js';
+import { getRunwareClient, downloadRunwareImage, RUNWARE_OUTPUT_PARAMS } from './runware-client.js';
 import { getRunwareErrorMessage } from './runware-errors.js';
 import { punchCircle, toDataURI } from './image-compositor.js';
 
@@ -130,19 +130,16 @@ function sanitizeWeightedModels(list) {
 }
 
 /**
- * Re-clamp ModelParams before a paid request. They were clamped once when the
- * portrait was generated, but they pass through the output dialog's options,
- * so don't trust them blindly - every request costs money.
+ * The request fields of ModelParams, clamped to LIMITS, with a fixed key
+ * order. Shared by sanitizeModelParams() and the cache keys, so two
+ * ModelParams share a key exactly when they would send the same request.
+ * `model` is '' when none is set.
  * @param {ModelParams} modelParams
  * @returns {Object} request fields
  */
-function sanitizeModelParams(modelParams) {
+function normalizeModelParams(modelParams) {
   const source = modelParams ?? {};
-  if (!isNonBlankString(source.model)) {
-    throw new Error('No image model is set for this request.');
-  }
-
-  const params = { model: source.model.trim() };
+  const params = { model: isNonBlankString(source.model) ? source.model.trim() : '' };
 
   const lora = sanitizeWeightedModels(source.lora);
   if (lora.length > 0) params.lora = lora;
@@ -159,6 +156,121 @@ function sanitizeModelParams(modelParams) {
   if (cfgScale !== null) params.CFGScale = clamp(cfgScale, LIMITS.cfgScale);
 
   return params;
+}
+
+/**
+ * Re-clamp ModelParams before a paid request. They were clamped once when the
+ * portrait was generated (or come from a GM's preset), but they pass through
+ * the output dialog, so don't trust them blindly - every request costs money.
+ * @param {ModelParams} modelParams
+ * @returns {Object} request fields
+ */
+function sanitizeModelParams(modelParams) {
+  const params = normalizeModelParams(modelParams);
+  if (!params.model) {
+    throw new Error('No image model is set for this request.');
+  }
+  return params;
+}
+
+/**
+ * Whether ModelParams name a model at all. A free check for callers that want
+ * to refuse before paying for anything else (a background removal before the
+ * background, say); sanitizeModelParams() throws on the same condition.
+ * @param {ModelParams} modelParams
+ * @returns {boolean}
+ */
+export function hasImageModel(modelParams) {
+  return normalizeModelParams(modelParams).model !== '';
+}
+
+/**
+ * Stable text form of ModelParams for cache keys: the clamped request fields,
+ * so a background made with one model or preset is never reused for another.
+ * @param {ModelParams} modelParams
+ * @returns {string}
+ */
+function modelParamsKey(modelParams) {
+  return JSON.stringify(normalizeModelParams(modelParams));
+}
+
+/**
+ * ModelParams for a generation preset (world setting `generationPresets`, see
+ * preset-config.js), matching what the generation form sends after applying
+ * that preset. The LoRA trigger is not part of it: the form prepends it to the
+ * prompt, and ring/background prompts are the user's own.
+ * @param {Object} rawPreset - a stored preset
+ * @returns {ModelParams|null} null for an invalid preset (no name or no
+ *   model, the same rule as dialog.js's _mapPreset())
+ */
+export function presetToModelParams(rawPreset) {
+  if (!isNonBlankString(rawPreset?.name) || !isNonBlankString(rawPreset?.model)) return null;
+
+  // The form sends one LoRA and the embeddings with a blank weight as 1, both
+  // clamped - exactly what normalizeModelParams() does to the stored values.
+  return normalizeModelParams({
+    model: rawPreset.model,
+    lora: rawPreset.lora ? [rawPreset.lora] : undefined,
+    vae: rawPreset.vae,
+    embeddings: rawPreset.embeddings,
+    steps: rawPreset.steps,
+    CFGScale: rawPreset.cfgScale
+  });
+}
+
+/**
+ * Valid generation presets as ModelParams, sorted by name.
+ * @param {Array<Object>} rawPresets - the stored presets, see loadPresets()
+ * @returns {Array<{id: string, name: string, modelParams: ModelParams, loraTrigger: string}>}
+ *   loraTrigger is '' unless the preset has a LoRA with a trigger word
+ */
+export function listPresets(rawPresets) {
+  if (!Array.isArray(rawPresets)) return [];
+
+  const seen = new Set();
+  const presets = [];
+  for (const rawPreset of rawPresets) {
+    const modelParams = presetToModelParams(rawPreset);
+    if (!modelParams) continue;
+    // preset-config.js always stores an id; the name is only a fallback.
+    const id = isNonBlankString(rawPreset.id) ? rawPreset.id : `name:${rawPreset.name.trim()}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    presets.push({
+      id,
+      name: rawPreset.name.trim(),
+      modelParams,
+      loraTrigger: modelParams.lora && isNonBlankString(rawPreset.lora?.trigger)
+        ? rawPreset.lora.trigger.trim()
+        : ''
+    });
+  }
+  return presets.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The world's generation presets (listPresets()), telling a failed read of
+ * the `generationPresets` setting apart from "no presets".
+ * @param {*} [rawPresets] - the stored presets, as the `presetsUpdated` hook
+ *   passes them; the setting is read when this is not an array
+ * @returns {{presets: Array<Object>, loaded: boolean}} loaded is false (and
+ *   a warning logged) when the setting could not be read or holds no list
+ */
+export function loadPresets(rawPresets) {
+  let value = rawPresets;
+  if (!Array.isArray(value)) {
+    try {
+      value = game.settings.get(MODULE_ID, 'generationPresets');
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Could not read the generation presets:`, error);
+      return { presets: [], loaded: false };
+    }
+  }
+  if (!Array.isArray(value)) {
+    console.warn(`${MODULE_ID} | The generation presets setting is not a list:`, value);
+    return { presets: [], loaded: false };
+  }
+  return { presets: listPresets(value), loaded: true };
 }
 
 /**
@@ -264,8 +376,7 @@ async function requestSingleImage({ prompt, negativePrompt, modelParams, width, 
     width: clampDimension(width),
     height: clampDimension(height),
     numberResults: 1,
-    outputType: 'base64Data',
-    outputFormat: 'PNG'
+    ...RUNWARE_OUTPUT_PARAMS
   };
   if (isNonBlankString(negativePrompt)) {
     requestParams.negativePrompt = negativePrompt.trim();
@@ -276,10 +387,10 @@ async function requestSingleImage({ prompt, negativePrompt, modelParams, width, 
   const runware = await getClient();
   const images = await runware.requestImages(requestParams);
   const image = Array.isArray(images) ? images[0] : images;
-  if (!image?.imageBase64Data) {
+  if (!image?.imageURL && !image?.imageBase64Data) {
     throw new Error('No image was generated.');
   }
-  return image;
+  return downloadRunwareImage(image);
 }
 
 /**
@@ -287,7 +398,7 @@ async function requestSingleImage({ prompt, negativePrompt, modelParams, width, 
  * @param {{imageBase64Data?: string, imageUUID?: string}} imageData
  *   A Runware image (its UUID is sent when present, saving the upload) or a
  *   local `{ imageBase64Data }`.
- * @returns {Promise<{imageBase64Data: string, imageUUID?: string}>} raw base64 PNG
+ * @returns {Promise<{imageBase64Data: string, imageUUID?: string}>} raw base64 WebP
  * @throws {Error} "Background removal failed: ..."
  */
 export async function removeBackground(imageData) {
@@ -301,16 +412,16 @@ export async function removeBackground(imageData) {
     const response = await runware.removeImageBackground({
       inputImage,
       model: getBackgroundRemovalModel(),
-      outputType: 'base64Data',
-      outputFormat: 'PNG'
+      ...RUNWARE_OUTPUT_PARAMS
     });
 
-    const result = Array.isArray(response) ? response[0] : response;
-    // Without new base64 data a caller could fall back to the original and
+    const returned = Array.isArray(response) ? response[0] : response;
+    // Without a new image a caller could fall back to the original and
     // silently save the un-removed image as if removal had worked.
-    if (!result?.imageBase64Data) {
+    if (!returned?.imageURL && !returned?.imageBase64Data) {
       throw new Error('Background removal did not return an image.');
     }
+    const result = await downloadRunwareImage(returned);
 
     const removed = { imageBase64Data: stripDataPrefix(result.imageBase64Data) };
     if (result.imageUUID) removed.imageUUID = result.imageUUID;
@@ -328,7 +439,7 @@ export async function removeBackground(imageData) {
  * @param {string} [options.negativePrompt]
  * @param {ModelParams} options.modelParams
  * @param {(text: string) => void} [options.onStatus] progress text callback
- * @returns {Promise<{imageBase64Data: string}>} square transparent PNG
+ * @returns {Promise<{imageBase64Data: string}>} square transparent WebP
  * @throws {Error} on a blank prompt, or "Ring generation failed: ..." /
  *   "Background removal failed: ..."
  */
@@ -388,30 +499,45 @@ export async function generateBackground({ prompt, negativePrompt, modelParams, 
 
 /**
  * Cache key of a generated background in the output dialog's assetCache. Two
- * requests share a key only if they would produce an equivalent image.
- * @param {{prompt: string, negativePrompt: string, width: number, height: number}} options
+ * requests share a key only if they would produce an equivalent image, so the
+ * model settings are part of it.
+ * @param {{prompt: string, negativePrompt: string, width: number, height: number,
+ *   modelParams: ModelParams}} options
  * @returns {string}
  */
-export function backgroundCacheKey({ prompt, negativePrompt, width, height }) {
-  return `background:${width}x${height}:${prompt}\u0000${negativePrompt}`;
+export function backgroundCacheKey({ prompt, negativePrompt, width, height, modelParams }) {
+  return `background:${width}x${height}:${modelParamsKey(modelParams)}\u0000${prompt}\u0000${negativePrompt}`;
 }
 
-function portraitBackgroundKey(portrait) {
-  return backgroundCacheKey({
-    prompt: portrait.backgroundPrompt,
-    negativePrompt: portrait.backgroundNegativePrompt,
-    width: portrait.backgroundSize?.width,
-    height: portrait.backgroundSize?.height
-  });
-}
+/**
+ * The background request an OutputPlan makes for one output: the one place
+ * its cache key is computed, used by the paid-call summary, the dialog, and
+ * module.js's executeOutputPlan(), so they always agree on what is cached.
+ * The prompt is not validated; generateBackground() rejects a blank one.
+ * @param {Object|null} plan - an OutputPlan from the output dialog
+ * @param {'portrait'|'token'} target
+ * @returns {{key: string, prompt: string, negativePrompt: string, width: number,
+ *   height: number, modelParams: ModelParams}|null} null when that output
+ *   doesn't generate a background. A token with `sameBackgroundAsPortrait`
+ *   resolves to the portrait's request (same key, one generation).
+ */
+export function getBackgroundRequest(plan, target) {
+  const output = target === 'portrait' || target === 'token' ? plan?.[target] : null;
+  if (output?.background !== 'generate') return null;
 
-function tokenBackgroundKey(token) {
-  return backgroundCacheKey({
-    prompt: token.backgroundPrompt,
-    negativePrompt: token.backgroundNegativePrompt,
-    width: token.backgroundSize?.width,
-    height: token.backgroundSize?.height
-  });
+  if (target === 'token' && output.sameBackgroundAsPortrait) {
+    const portraitRequest = getBackgroundRequest(plan, 'portrait');
+    if (portraitRequest) return portraitRequest;
+  }
+
+  const request = {
+    prompt: String(output.backgroundPrompt ?? '').trim(),
+    negativePrompt: String(output.backgroundNegativePrompt ?? '').trim(),
+    width: clampDimension(output.backgroundSize?.width),
+    height: clampDimension(output.backgroundSize?.height),
+    modelParams: plan.modelParams ?? null
+  };
+  return { key: backgroundCacheKey(request), ...request };
 }
 
 function pluralize(count, noun) {
@@ -437,15 +563,13 @@ export function summarizePaidCalls(plan, cache) {
   const removals = needsSubject && !isCached(SUBJECT_CACHE_KEY) ? 1 : 0;
 
   let backgroundGenerations = 0;
-  const portraitKey = portrait?.background === 'generate' ? portraitBackgroundKey(portrait) : null;
+  const portraitKey = getBackgroundRequest(plan, 'portrait')?.key ?? null;
   if (portraitKey && !isCached(portraitKey)) backgroundGenerations += 1;
 
-  if (token?.background === 'generate' && !token.sameBackgroundAsPortrait) {
-    const tokenKey = tokenBackgroundKey(token);
-    // An identical request to the portrait's is served from the cache once
-    // the portrait background exists, so it isn't paid twice.
-    if (tokenKey !== portraitKey && !isCached(tokenKey)) backgroundGenerations += 1;
-  }
+  const tokenKey = getBackgroundRequest(plan, 'token')?.key ?? null;
+  // The portrait's own request ("same background"), or an identical one, is
+  // served from the cache once the portrait background exists: not paid twice.
+  if (tokenKey && tokenKey !== portraitKey && !isCached(tokenKey)) backgroundGenerations += 1;
 
   const parts = [];
   if (removals > 0) parts.push(pluralize(removals, 'background removal'));

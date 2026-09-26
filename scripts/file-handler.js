@@ -5,16 +5,27 @@
  */
 
 import { MODULE_NAME, RINGS_DIRECTORY } from './constants.js';
+import { convertToWebp, detectImageMimeType } from './image-compositor.js';
+
+const FILE_EXTENSIONS = Object.freeze({
+  'image/webp': 'webp',
+  'image/png': 'png',
+  'image/jpeg': 'jpg'
+});
 
 export class ImageFileHandler {
   /**
    * Save a generated image to the Foundry data directory.
    *
    * Where each `type` lands (relative to the Foundry data root):
-   * - `avatar`     -> images/runware/<actor folder>/image_N.png
-   * - `token`      -> images/runware/<actor folder>/tokens/token_N.png
-   * - `background` -> images/runware/<actor folder>/backgrounds/background_N.png
-   * - `ring`       -> RINGS_DIRECTORY/ring_N.png (shared by every actor; `actor` is ignored and may be null)
+   * - `avatar`     -> images/runware/<actor folder>/image_N.webp
+   * - `token`      -> images/runware/<actor folder>/tokens/token_N.webp
+   * - `background` -> images/runware/<actor folder>/backgrounds/background_N.webp
+   * - `ring`       -> RINGS_DIRECTORY/ring_N.webp (shared by every actor; `actor` is ignored and may be null)
+   *
+   * Everything is saved as WebP: data in another format is re-encoded first.
+   * Only a browser that can't encode WebP saves the PNG it falls back to, as
+   * `.png`, so a file's extension always matches its content.
    *
    * @param {Actor|null} actor - The actor for which the image was generated (unused for `ring`)
    * @param {Object} imageData - The image data from Runware
@@ -27,11 +38,14 @@ export class ImageFileHandler {
     try {
       const { type = 'avatar' } = options;
 
-      // Get the base64 image data
-      let base64Data = imageData?.imageBase64Data;
-
-      if (!base64Data) {
+      if (!imageData?.imageBase64Data) {
         throw new Error('No base64 image data provided');
+      }
+
+      const { imageBase64Data: base64Data } = await convertToWebp(imageData);
+      const mimeType = detectImageMimeType(base64Data) ?? 'image/webp';
+      if (mimeType !== 'image/webp') {
+        console.warn(`${MODULE_NAME} | This browser can't encode WebP; saving as ${mimeType}.`);
       }
 
       // Resolve the target directory and filename prefix at the Foundry data root
@@ -44,13 +58,13 @@ export class ImageFileHandler {
       const imageNumber = this._getNextImageNumber(existingFiles, filenamePrefix);
 
       // Create filename
-      const filename = `${filenamePrefix}${imageNumber}.png`;
+      const filename = `${filenamePrefix}${imageNumber}.${FILE_EXTENSIONS[mimeType]}`;
 
       // Convert base64 to blob
-      const blob = this._base64ToBlob(base64Data, 'image/png');
+      const blob = this._base64ToBlob(base64Data, mimeType);
 
       // Upload the file using Foundry's FilePicker API
-      const file = new File([blob], filename, { type: 'image/png' });
+      const file = new File([blob], filename, { type: mimeType });
 
       // Upload to the data directory
       const filePicker = this._getFilePicker();
@@ -204,7 +218,7 @@ export class ImageFileHandler {
 
       // Confirm the directory now exists and list it. This deliberately does
       // NOT swallow a failure: treating "couldn't browse" as "empty directory"
-      // would restart numbering at 1 and overwrite an existing image_1.png.
+      // would restart numbering at 1 and overwrite an existing image_1.webp.
       const result = await filePicker.browse('data', path);
       return Array.isArray(result?.files) ? result.files : [];
     }
@@ -218,8 +232,10 @@ export class ImageFileHandler {
    */
   static _getNextImageNumber(files, filenamePrefix = 'image_') {
     const escapedPrefix = filenamePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Anchored to the start of the filename so e.g. "old_image_99.png" doesn't count.
-    const filenameRegex = new RegExp(`(?:^|/)${escapedPrefix}(\\d+)\\.png$`, 'i');
+    // Anchored to the start of the filename so e.g. "old_image_99.webp" doesn't
+    // count. PNGs saved before the switch to WebP still count, so numbering
+    // carries on after them instead of starting again at 1.
+    const filenameRegex = new RegExp(`(?:^|/)${escapedPrefix}(\\d+)\\.(?:webp|png|jpe?g)$`, 'i');
 
     const numbers = (files ?? [])
       .map((file) => {
@@ -240,7 +256,7 @@ export class ImageFileHandler {
   /**
    * Convert base64 string to Blob
    * @param {string} base64 - The base64 string (optionally a data: URI)
-   * @param {string} contentType - The content type (e.g., 'image/png')
+   * @param {string} contentType - The content type (e.g., 'image/webp')
    * @returns {Blob} The blob
    */
   static _base64ToBlob(base64, contentType = '') {

@@ -1,13 +1,13 @@
 /**
  * Helpers for Foundry's dynamic token ring and the token options that feed
- * it (ring/background colours, subject scale).
+ * it (ring/background colours, subject scale, subject framing).
  *
  * The dynamic ring is a core feature, but systems and modules can replace or
  * strip CONFIG.Token, so every read here is defensive: a missing piece means
  * "no dynamic ring", never an exception that breaks the output dialog.
  */
 
-import { LIMITS } from './constants.js';
+import { LIMITS, TOKEN_FRAMING } from './constants.js';
 
 /**
  * Describe the world's active dynamic token ring.
@@ -98,4 +98,34 @@ export function clampSubjectScale(value) {
   if (!Number.isFinite(number)) return fallback;
   const clamped = Math.min(max, Math.max(min, number));
   return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * Clamp the token subject framing (see TOKEN_FRAMING) and round it, so equal
+ * framings compare and cache-key equal. Invalid parts fall back to neutral.
+ * @param {{zoom?: *, offsetX?: *, offsetY?: *}} [framing]
+ * @returns {{zoom: number, offsetX: number, offsetY: number}}
+ */
+export function clampTokenFraming(framing) {
+  const clamp = (value, { min, max, fallback }) => {
+    const number = Number(value);
+    if (value === null || value === undefined || !Number.isFinite(number)) return fallback;
+    return Math.round(Math.min(max, Math.max(min, number)) * 1000) / 1000;
+  };
+  return {
+    zoom: clamp(framing?.zoom, TOKEN_FRAMING.zoom),
+    offsetX: clamp(framing?.offsetX, TOKEN_FRAMING.offset),
+    offsetY: clamp(framing?.offsetY, TOKEN_FRAMING.offset)
+  };
+}
+
+/**
+ * Whether a (clamped) framing leaves the subject where it would be anyway.
+ * @param {{zoom: number, offsetX: number, offsetY: number}} framing
+ * @returns {boolean}
+ */
+export function isNeutralFraming(framing) {
+  return framing.zoom === TOKEN_FRAMING.zoom.fallback
+    && framing.offsetX === 0
+    && framing.offsetY === 0;
 }

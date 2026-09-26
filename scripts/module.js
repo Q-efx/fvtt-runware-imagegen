@@ -23,9 +23,10 @@ import {
   removeBackground,
   generateBackground,
   SUBJECT_CACHE_KEY,
-  backgroundCacheKey
+  getBackgroundRequest
 } from './asset-generation.js';
-import { compositeLayers, getImageSize } from './image-compositor.js';
+import { compositeLayers, getImageSize, toDataURI } from './image-compositor.js';
+import { clampTokenFraming, isNeutralFraming } from './token-ring.js';
 
 // Cache keys for saved portrait/token files (see saveOutputOnce). They never
 // hold image data, so the paid-call summary ignores them.
@@ -197,12 +198,7 @@ async function openImageGenerationDialog(actorSheet) {
  * @returns {string}
  */
 function getImageSrc(image) {
-  if (image?.imageBase64Data) {
-    return image.imageBase64Data.startsWith('data:')
-      ? image.imageBase64Data
-      : `data:image/png;base64,${image.imageBase64Data}`;
-  }
-  return image?.imageURL ?? '';
+  return toDataURI(image) || image?.imageURL || '';
 }
 
 /**
@@ -225,13 +221,15 @@ function getDialogV2() {
  * Handle the generated image(s): pick one, then let the user decide in the
  * "Use this image" window how it becomes the portrait and/or token. Nothing is
  * saved and no paid call is made until that window's Apply (apart from the
- * explicit "Generate ring" button inside it).
+ * explicit "Generate ring" and "Preview background" buttons inside it, whose
+ * results are only saved on Apply).
  * @param {Actor} actor - The actor document
  * @param {Array<Object>} imagesData - The generated image data from Runware
  * @param {Object} options - Additional options from the generation dialog
  * @param {boolean} [options.removeBackground] - Preselect "Remove background" for the portrait
  * @param {string} [options.prompt] - The generation prompt
- * @param {Object} [options.modelParams] - Model settings reused for rings and backgrounds
+ * @param {Object} [options.modelParams] - Model settings reused for rings and backgrounds,
+ *   unless the output window picks a preset instead
  * @param {{width: number, height: number}} [options.portraitSize] - The generation request's size
  * @returns {Promise<boolean>} `true` once the images were applied, `false` if
  *   the flow was abandoned or failed - the dialog stays open in that case so
@@ -247,6 +245,7 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
     const { removeBackground: preselectRemoval = false, prompt = '', modelParams = {}, portraitSize = null } = options;
     const canGoBack = imagesData.length > 1;
     const assetCaches = new Map();
+    let latestCache = null;
 
     // "Back to images" in the output window returns here to pick again.
     while (true) {
@@ -259,6 +258,7 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
         return false;
       }
 
+      latestCache = getAssetCache(assetCaches, selectedImageData, latestCache);
       const result = await RunwareOutputDialog.wait({
         actor,
         imageData: selectedImageData,
@@ -267,8 +267,8 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
         portraitSize,
         generationPrompt: prompt,
         defaults: { portraitBackground: preselectRemoval ? 'remove' : 'keep' },
-        assetCache: getAssetCache(assetCaches, selectedImageData),
-        onApply: (plan, context) => executeOutputPlan(actor, selectedImageData, plan, { ...context, modelParams })
+        assetCache: latestCache,
+        onApply: (plan, context) => executeOutputPlan(actor, selectedImageData, plan, context)
       });
 
       if (result === 'applied') return true;
@@ -289,19 +289,26 @@ async function handleGeneratedImage(actor, imagesData, options = {}) {
  * picking again therefore never pays for the same asset twice.
  * @param {Map<Object, Map>} assetCaches - per-image caches for this generation
  * @param {Object} image - the picked Runware image
+ * @param {Map|null} [latest] - the previous window's cache. Its entries win:
+ *   "Regenerate background" replaces an entry there with a new object, and
+ *   the other caches still hold the old one.
  * @returns {Map<string, {imageData: Object|null, savedPath: string|null}>}
  */
-function getAssetCache(assetCaches, image) {
+function getAssetCache(assetCaches, image, latest = null) {
   let cache = assetCaches.get(image);
   if (!cache) {
     cache = new Map();
     assetCaches.set(image, cache);
   }
+  const isShared = (key) => key !== SUBJECT_CACHE_KEY && !key.startsWith(OUTPUT_CACHE_PREFIX);
+  if (latest && latest !== cache) {
+    for (const [key, entry] of latest) {
+      if (isShared(key)) cache.set(key, entry);
+    }
+  }
   for (const other of assetCaches.values()) {
     for (const [key, entry] of other) {
-      if (key !== SUBJECT_CACHE_KEY && !key.startsWith(OUTPUT_CACHE_PREFIX) && !cache.has(key)) {
-        cache.set(key, entry);
-      }
+      if (isShared(key) && !cache.has(key)) cache.set(key, entry);
     }
   }
   return cache;
@@ -310,7 +317,7 @@ function getAssetCache(assetCaches, image) {
 /**
  * Save an output once per identical request. A retried Apply (say, after the
  * actor update failed) reuses the file it already uploaded instead of leaving
- * an orphaned image_N.png behind.
+ * an orphaned image_N.webp behind.
  * @param {Map} cache
  * @param {string} key - OUTPUT_CACHE_PREFIX + a description of the output
  * @param {() => Promise<string>} save
@@ -358,16 +365,22 @@ async function getCachedAsset(cache, key, setStatus, status, produce) {
  *   used as the ring's subject texture. The core ring doesn't mask the subject,
  *   so a baked-in background must stop at the ring or it would cover it.
  * - token custom ring: [background] + subject in the inner two thirds + ring,
- *   baked into one PNG with the dynamic ring off (ring styles are world-wide).
+ *   baked into one WebP with the dynamic ring off (ring styles are world-wide).
+ * The token subject is additionally zoomed and shifted by `token.framing`
+ * (dragged and wheeled on the preview), and with `token.clipSubject` clipped
+ * just under the ring's band so it can't stick out of the ring. Either one
+ * forces a composited token.
  * @param {Actor} actor
  * @param {Object} original - The selected Runware image
  * @param {Object} plan - The OutputPlan built by RunwareOutputDialog
  * @param {Object} context
  * @param {(text: string) => void} context.setStatus
  * @param {Map} context.cache
- * @param {Object} context.modelParams
  */
-async function executeOutputPlan(actor, original, plan, { setStatus, cache, modelParams }) {
+async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
+  // The dialog's model selection (a preset, or the generation's settings) is
+  // always set; never guess another model for a paid request.
+  if (!plan?.modelParams) throw new Error('The output plan has no model settings.');
   const { portrait, token } = plan;
 
   // One background removal serves every output that needs the bare subject.
@@ -378,22 +391,15 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache, mode
     subject = entry.imageData;
   }
 
-  const getBackground = ({ backgroundPrompt: prompt, backgroundNegativePrompt: negativePrompt, backgroundSize }) =>
-    getCachedAsset(
-      cache,
-      backgroundCacheKey({ prompt, negativePrompt, ...backgroundSize }),
-      setStatus,
-      'Generating background…',
-      () => generateBackground({ prompt, negativePrompt, modelParams, ...backgroundSize })
-    );
+  // A token that shares the portrait's background gets the portrait's request,
+  // so the second lookup is a cache hit on the same entry.
+  const portraitRequest = getBackgroundRequest(plan, 'portrait');
+  const tokenRequest = getBackgroundRequest(plan, 'token');
+  const getBackground = ({ key, ...request }) =>
+    getCachedAsset(cache, key, setStatus, 'Generating background…', () => generateBackground(request));
 
-  const portraitBackground = portrait?.background === 'generate' ? await getBackground(portrait) : null;
-  let tokenBackground = null;
-  if (token?.background === 'generate') {
-    tokenBackground = token.sameBackgroundAsPortrait && portraitBackground
-      ? portraitBackground
-      : await getBackground(token);
-  }
+  const portraitBackground = portraitRequest ? await getBackground(portraitRequest) : null;
+  const tokenBackground = tokenRequest ? await getBackground(tokenRequest) : null;
 
   let ringEntry = null;
   let ringSource = null;
@@ -438,6 +444,15 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache, mode
       fit: 'cover',
       clipCircle
     };
+    const framing = clampTokenFraming(token.framing);
+    const subjectLayer = (scale, extra = {}) => ({
+      src: subject,
+      fit: 'contain',
+      scale: scale * framing.zoom,
+      offsetX: framing.offsetX,
+      offsetY: framing.offsetY,
+      ...extra
+    });
 
     if (token.ring === 'custom') {
       tokenImage = await compositeLayers({
@@ -446,20 +461,27 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache, mode
         layers: [
           // Slightly larger than the punched centre so no gap shows at the band's inner edge.
           backgroundLayer(RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP),
-          { src: subject, fit: 'contain', scale: CUSTOM_RING_SUBJECT_SCALE },
+          // At least clipped to the token circle, so it never spills into the corners.
+          subjectLayer(CUSTOM_RING_SUBJECT_SCALE, {
+            clipCircle: token.clipSubject ? RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP : 1
+          }),
           { src: ringSource, fit: 'stretch' }
         ]
       });
-    } else if (tokenBackground) {
+    } else if (tokenBackground || !isNeutralFraming(framing) || token.clipSubject) {
       // subject.scale shrinks or grows the core ring relative to the texture,
       // so its inner edge sits at RING_INNER_RADIUS / scale in texture space.
-      const clipCircle = token.ring === 'dynamic'
-        ? Math.min(1, RING_INNER_RADIUS / token.dynamic.subjectScale)
-        : 1;
+      // The core ring doesn't mask its subject: without a clip, anything
+      // outside the ring is drawn over the map.
+      const dynamicScale = token.ring === 'dynamic' ? token.dynamic.subjectScale : 1;
+      const clipCircle = token.ring === 'dynamic' ? Math.min(1, RING_INNER_RADIUS / dynamicScale) : 1;
+      const subjectClip = token.clipSubject
+        ? Math.min(1, (RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP) / dynamicScale)
+        : null;
       tokenImage = await compositeLayers({
         width: TOKEN_SIZE,
         height: TOKEN_SIZE,
-        layers: [backgroundLayer(clipCircle), { src: subject, fit: 'contain' }]
+        layers: [backgroundLayer(clipCircle), subjectLayer(1, { clipCircle: subjectClip })]
       });
     } else {
       tokenImage = subject;
@@ -482,15 +504,22 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache, mode
     }
   }
 
+  // The background belongs in these keys: the plan alone doesn't say which
+  // model painted it, nor (for a shared background) the portrait's prompt. Its
+  // saved path tells a regenerated background ("Regenerate background" after
+  // a failed Apply) from the one an earlier attempt composited.
+  const backgroundKey = (request, entry) => `${request?.key ?? ''}:${entry?.savedPath ?? ''}`;
   const portraitPath = portraitImage
-    ? await saveOutputOnce(cache, `${OUTPUT_CACHE_PREFIX}portrait:${JSON.stringify(portrait)}`,
+    ? await saveOutputOnce(cache,
+      `${OUTPUT_CACHE_PREFIX}portrait:${JSON.stringify(portrait)}:${backgroundKey(portraitRequest, portraitBackground)}`,
       () => ImageFileHandler.saveImage(actor, portraitImage))
     : null;
   let tokenPath = null;
   if (tokenImage) {
     tokenPath = tokenReusesPortrait && portraitPath
       ? portraitPath
-      : await saveOutputOnce(cache, `${OUTPUT_CACHE_PREFIX}token:${JSON.stringify(token)}`,
+      : await saveOutputOnce(cache,
+        `${OUTPUT_CACHE_PREFIX}token:${JSON.stringify(token)}:${backgroundKey(tokenRequest, tokenBackground)}`,
         () => ImageFileHandler.saveImage(actor, tokenImage, { type: 'token' }));
   }
 

@@ -7,7 +7,7 @@
 import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
 import { RunwarePresetConfig } from './preset-config.js';
 import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
-import { getRunwareClient } from './runware-client.js';
+import { getRunwareClient, downloadRunwareImage, RUNWARE_OUTPUT_PARAMS } from './runware-client.js';
 import { extractModelParams } from './asset-generation.js';
 
 /**
@@ -410,6 +410,18 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       heightInput.value = `${preset.height}`;
     }
 
+    // Unlike width/height, a preset without steps or CFG scale clears them
+    // (blank = the model's default), so they never leak from the last preset.
+    const stepsInput = form.querySelector('input[name="steps"]');
+    if (stepsInput) {
+      stepsInput.value = preset.steps === null ? '' : `${preset.steps}`;
+    }
+
+    const cfgScaleInput = form.querySelector('input[name="cfgScale"]');
+    if (cfgScaleInput) {
+      cfgScaleInput.value = preset.cfgScale === null ? '' : `${preset.cfgScale}`;
+    }
+
     const embeddingsField = form.querySelector('textarea[name="embeddings"]');
     if (embeddingsField) {
       embeddingsField.value = this._formatEmbeddingsForInput(preset.embeddings);
@@ -439,6 +451,9 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
 
     const width = Number(rawPreset.width);
     const height = Number(rawPreset.height);
+    // Clamped again in _generateImage(); this only keeps the form plausible.
+    const steps = toFiniteNumber(rawPreset.steps);
+    const cfgScale = toFiniteNumber(rawPreset.cfgScale);
 
     return {
       id: rawPreset.id ?? foundry.utils.randomID(),
@@ -446,6 +461,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       model: rawPreset.model,
       width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
       height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      steps: steps === null ? null : Math.round(clamp(steps, LIMITS.steps)),
+      cfgScale: cfgScale === null ? null : clamp(cfgScale, LIMITS.cfgScale),
       lora: rawPreset.lora
         ? {
             model: rawPreset.lora.model ?? '',
@@ -616,8 +633,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
         toFiniteNumber(formData.numberResults) ?? LIMITS.numberResults.fallback,
         LIMITS.numberResults
       )),
-      outputType: 'base64Data', // We'll get base64 data to save locally
-      outputFormat: 'PNG'
+      ...RUNWARE_OUTPUT_PARAMS // A URL, downloaded below - see runware-client.js
     };
 
     // Add negative prompt if provided
@@ -671,8 +687,8 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       throw new Error('No images were generated');
     }
 
-    // Return all generated images
-    return { images, requestParams };
+    // Return all generated images, downloaded as base64
+    return { images: await Promise.all(images.map(downloadRunwareImage)), requestParams };
   }
 
   async _onSubmit(event, form, formData) {
