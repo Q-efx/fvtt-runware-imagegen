@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.0]
+
+### Added
+
+- **Build provenance**: every release's `module.zip` and `module.json` now carry a signed SLSA
+  build provenance attestation from GitHub Actions. Verify a download with
+  `gh attestation verify module.zip --repo Q-efx/fvtt-runware-imagegen`.
+
 ## [v1.3.0]
 
 ### Added

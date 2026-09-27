@@ -294,8 +294,11 @@ Publishing a GitHub release with tag `vX.Y.Z` triggers `.github/workflows/releas
 warns if the versions don't match the tag, substitutes the versioned manifest/download URLs into `module.json`, runs `node build.mjs` (no `npm ci` - see the workflow comments),
 zips the **contents of `build/`** as `module.zip` (so `module.json` sits at the archive root —
 zipping `build/` itself put the manifest one level down and dropped `styles/`, `templates/`, and
-`lang/`, which was the v0.9.0 packaging fix), attaches both to the release, and (for
-non-prereleases, if `PACKAGE_TOKEN` is set) publishes to the FoundryVTT package registry.
+`lang/`, which was the v0.9.0 packaging fix), attaches both to the release, signs SLSA build
+provenance for both files (`actions/attest-build-provenance`; needs `id-token`/`attestations: write`,
+and runs after the upload so it can never leave a release without assets), and (for
+non-prereleases, if `PACKAGE_TOKEN` is set) publishes to the FoundryVTT package registry. Verify a
+download with `gh attestation verify module.zip --repo Q-efx/fvtt-runware-imagegen`.
 
 ## Docs
 

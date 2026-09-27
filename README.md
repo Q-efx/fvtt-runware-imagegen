@@ -288,6 +288,9 @@ For issues, feature requests, or questions:
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
 
+### Version 1.4.0
+- Releases now ship with signed build provenance: verify a download with `gh attestation verify module.zip --repo Q-efx/fvtt-runware-imagegen`
+
 ### Version 1.3.0
 - Built-in premium presets: eight 2:3 presets for Qwen-Image 3.0 / 3.0 Pro, FLUX.2 pro and max, GPT Image 2 / 2.5 Flare / 2.5 Sunburst and Seedream 5.0 Pro, off until the GM enables them in Manage Presets
 - Requests to these models leave out the fields they reject, and FLUX.2 and GPT Image use their most permissive content moderation so dark and gory characters aren't refused
