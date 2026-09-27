@@ -1,3 +1,5 @@
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Q-efx/fvtt-runware-imagegen?utm_source=oss&utm_medium=github&utm_campaign=Q-efx%2Ffvtt-runware-imagegen&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 # Runware AI Image Generator for FoundryVTT
 
 A FoundryVTT module that integrates [Runware AI](https://runware.ai) image generation directly into actor sheets. Generate high-quality AI images for your NPCs and player characters with ease!
