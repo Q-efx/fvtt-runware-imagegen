@@ -32,6 +32,14 @@ export const TOKEN_FRAMING = Object.freeze({
   offset: { min: -1, max: 1, fallback: 0 }
 });
 
+// Ring overlap mask: the parts of the subject painted in the token preview
+// that pass over the ring while the rest stays inside it. The mask covers the
+// subject layer's square box (so it follows the framing and fits both ring
+// types) at this edge, in px.
+export const OVERLAP_MASK_SIZE = 512;
+// Overlap brush diameter, in mask px (see OVERLAP_MASK_SIZE).
+export const OVERLAP_BRUSH = Object.freeze({ min: 4, max: 128, step: 2, fallback: 32 });
+
 // Composited token edge, in px.
 export const TOKEN_SIZE = 512;
 // Inner edge of a token ring as a fraction of the token's half-size. Foundry's

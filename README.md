@@ -18,6 +18,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 - 🪄 **Token Ready**: The token always gets a background-free subject (Bria RMBG 2.0 by default), with:
   - No ring, Foundry's dynamic token ring (ring colour, background colour, subject scale), or a custom AI-generated ring baked into the token image
   - A transparent, solid-colour, or AI-generated background kept inside the ring
+  - Drag and zoom the character inside the token, and paint the parts that should reach over the ring (a weapon arm, a wing) while the rest stays inside
   - Portraits can keep their background, have it removed, or get a newly generated one
 - 🔐 **API key in world settings**: only the GM can change it, but every connected player can read it - see [SETUP.md](SETUP.md)
 
@@ -83,6 +84,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
   - **Custom ring**: pick a ring that anyone in this world generated before, or choose **Generate new ring…**, edit the prompt, and click **Generate ring** (paid: one image plus one background removal; you can regenerate before applying). The ring is baked into the token image, and Foundry's dynamic ring is turned off for this token
 - **Token background**: **Transparent** (called **Ring default** under a dynamic ring), **Solid colour** (dynamic ring only), or **Generate background**, which is clipped to a circle inside the ring. If the portrait also gets a new background, the token can reuse it for free
 - **Keep the character inside the ring** (on by default, with a ring): cuts off whatever reaches past the ring. Untick it to let the character break out of the frame
+- **Ring overlap** (with **Keep the character inside the ring**): click **Paint overlap** and paint over the parts of the character that should pass over the ring, e.g. the arm holding a weapon - everything else stays inside. The preview grows while you paint; use the brush, the eraser, the brush size slider, **Undo** (or Ctrl+Z) and **Clear**, then **Done painting** to move or zoom the character again. The painted area moves and zooms with the character, and it is free: it is only applied when the token image is built on Apply
 - **Position and zoom**: drag the character in the token preview to move it, and use the mouse wheel to zoom (around the cursor). Double-click the preview or press the reset button to centre it again. The framing is baked into the token image on Apply
 
 **Preview background**: under each background prompt, **Preview background** generates the background now so you can see it in the preview before applying (paid: one image, plus the character's background removal the first time - Apply needs that removal anyway). Apply reuses the previewed background instead of paying again. Click **Regenerate background** for another one. If you edit the prompt or the model afterwards, the old preview stays visible but dimmed and marked *outdated*, and Apply generates a new background; change it back and the preview is used again. Like a generated ring, a previewed background is only saved on Apply - **Back to images** keeps it, **Cancel** discards it.
@@ -262,6 +264,9 @@ For issues, feature requests, or questions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Version 1.2.0
+- Ring overlap: paint the parts of the character that should reach over a dynamic or custom ring (a weapon arm, a wing) while the rest stays inside - brush, eraser, size, Undo and Clear, applied locally on Apply at no extra cost
 
 ### Version 1.1.0
 - New "Use this image" window replaces the "Set as Actor Image?" prompt: configure portrait and token separately, with a preview, and see the paid calls before Apply

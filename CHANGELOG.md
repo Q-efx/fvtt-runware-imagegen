@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.2.0]
+
+### Added
+
+- **Ring overlap**: with "Keep the character inside the ring" and a dynamic or custom ring, **Paint
+  overlap** in the token card lets you paint the parts of the character that should pass over the
+  ring (a weapon arm, a wing) while everything else stays inside it. The token preview grows while
+  painting and has a brush, an eraser, a brush size, Undo (also Ctrl+Z) and Clear; leave paint mode
+  to move or zoom again. The painted area moves and zooms with the character and is shown over the
+  ring in the preview. It is applied locally when the token is built on Apply (no Runware call);
+  with nothing painted the token is built exactly as before.
+
 ## [v1.1.0]
 
 ### Added

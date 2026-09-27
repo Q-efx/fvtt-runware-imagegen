@@ -369,7 +369,11 @@ async function getCachedAsset(cache, key, setStatus, status, produce) {
  * The token subject is additionally zoomed and shifted by `token.framing`
  * (dragged and wheeled on the preview), and with `token.clipSubject` clipped
  * just under the ring's band so it can't stick out of the ring. Either one
- * forces a composited token.
+ * forces a composited token. With `token.clipSubject`, `token.overlapMask`
+ * (painted on the preview) exempts parts of the subject from that clip, so
+ * they pass over the ring: drawn once more, masked, above the custom ring; for
+ * the dynamic ring (which Foundry draws under its subject texture) the one
+ * subject layer keeps what is inside the clip or painted.
  * @param {Actor} actor
  * @param {Object} original - The selected Runware image
  * @param {Object} plan - The OutputPlan built by RunwareOutputDialog
@@ -445,6 +449,7 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
       clipCircle
     };
     const framing = clampTokenFraming(token.framing);
+    const overlapMask = getOverlapMaskSource(token);
     const subjectLayer = (scale, extra = {}) => ({
       src: subject,
       fit: 'contain',
@@ -465,7 +470,10 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
           subjectLayer(CUSTOM_RING_SUBJECT_SCALE, {
             clipCircle: token.clipSubject ? RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP : 1
           }),
-          { src: ringSource, fit: 'stretch' }
+          { src: ringSource, fit: 'stretch' },
+          // The painted overlap over the ring, clipped to the token circle
+          // like an unclipped subject.
+          overlapMask && subjectLayer(CUSTOM_RING_SUBJECT_SCALE, { clipCircle: 1, mask: overlapMask })
         ]
       });
     } else if (tokenBackground || !isNeutralFraming(framing) || token.clipSubject) {
@@ -481,7 +489,15 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
       tokenImage = await compositeLayers({
         width: TOKEN_SIZE,
         height: TOKEN_SIZE,
-        layers: [backgroundLayer(clipCircle), subjectLayer(1, { clipCircle: subjectClip })]
+        layers: [
+          backgroundLayer(clipCircle),
+          // One subject layer: inside the clip, or painted (overlapMask needs
+          // clipSubject, which already forces this branch). Drawing it twice
+          // would thicken semi-transparent edges where the two overlap.
+          overlapMask
+            ? subjectLayer(1, { clipCircle: subjectClip, mask: overlapMask, maskExemptsClip: true })
+            : subjectLayer(1, { clipCircle: subjectClip })
+        ]
       });
     } else {
       tokenImage = subject;
@@ -516,10 +532,13 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
     : null;
   let tokenPath = null;
   if (tokenImage) {
+    // The overlap mask's content hash stands in for its data URI (a PNG of
+    // up to a few hundred KB), so equal masks still share the saved file.
+    const tokenKey = JSON.stringify({ ...token, overlapMask: token.overlapMask?.key ?? null });
     tokenPath = tokenReusesPortrait && portraitPath
       ? portraitPath
       : await saveOutputOnce(cache,
-        `${OUTPUT_CACHE_PREFIX}token:${JSON.stringify(token)}:${backgroundKey(tokenRequest, tokenBackground)}`,
+        `${OUTPUT_CACHE_PREFIX}token:${tokenKey}:${backgroundKey(tokenRequest, tokenBackground)}`,
         () => ImageFileHandler.saveImage(actor, tokenImage, { type: 'token' }));
   }
 
@@ -530,6 +549,21 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
       ? { path: tokenPath, ring: token.ring === 'dynamic' ? token.dynamic : null }
       : null
   });
+}
+
+/**
+ * The token's ring overlap mask as a compositor source, or null when it
+ * doesn't apply: it only exempts parts of a subject kept inside a dynamic or
+ * custom ring, and only a PNG data URI (what the output window exports) is
+ * accepted - never a path or URL.
+ * @param {Object} token - plan.token
+ * @returns {string|null}
+ */
+function getOverlapMaskSource(token) {
+  if (!token?.clipSubject || (token.ring !== 'dynamic' && token.ring !== 'custom')) return null;
+  const src = token.overlapMask?.src;
+  if (typeof src !== 'string' || !token.overlapMask?.key) return null;
+  return /^data:image\/png;base64,/i.test(src) ? src : null;
 }
 
 /**

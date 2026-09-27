@@ -30,11 +30,12 @@ files under `build/` — edit `scripts/` and rebuild.
 
 ## Architecture
 
-Everything lives in `scripts/` (~4100 lines total):
+Everything lives in `scripts/` (~5800 lines total):
 
 - **`constants.js`** — `MODULE_ID` (`runware-imagegen`), `MODULE_NAME`, `LIMITS` (request
   bounds), the token geometry (`TOKEN_SIZE`, `RING_INNER_RADIUS`, `CUSTOM_RING_SUBJECT_SCALE`,
-  `CUSTOM_RING_BACKGROUND_OVERLAP`, `RING_GENERATION_SIZE`), `RINGS_DIRECTORY`, and the `DEFAULT_*`
+  `CUSTOM_RING_BACKGROUND_OVERLAP`, `RING_GENERATION_SIZE`), the ring overlap mask
+  (`OVERLAP_MASK_SIZE`, `OVERLAP_BRUSH`), `RINGS_DIRECTORY`, and the `DEFAULT_*`
   removal model and prompt templates. Import these everywhere rather than hardcoding the id or a
   magic number; template paths are the one exception (see below).
 - **`settings.js`** — `registerSettings()`, called from `init`: every world setting plus the preset
@@ -63,7 +64,15 @@ Everything lives in `scripts/` (~4100 lines total):
   backgrounds are shown in the preview (data URIs cached per entry in a `WeakMap`, `src` only set
   on change); after a prompt/model edit the last background stays, dimmed as `data-stale`.
   `_isWorking()` (`_busy` = Apply, `_assetTask` = `'ring'`/`'background'`) blocks close, Back,
-  Apply, framing and the other paid button.
+  Apply, framing, overlap painting and the other paid button. The **ring overlap** editor ("Paint
+  overlap", only with `clipSubject` and a dynamic/custom ring) paints on a `<canvas>` in the token
+  preview (`data-painting` makes it 320px; the same pointer listeners paint instead of framing).
+  That canvas **is** the mask (alpha only; the colour is just the tint), over the subject's box:
+  it, the subject and a second, CSS-`mask-image`d subject above the ring layers all carry
+  `data-framed` and get the same transform in `_updateFramingPreview()`. `_getOverlapMask()`
+  exports `{ key, src }` once per `_overlapRevision` (bump it on **every** mask change), since
+  `_readPlan()` runs on every keystroke. Undo is a bounded `ImageData` stack; the mask belongs to
+  the window, never to `assetCache`.
 - **`asset-generation.js`** — the paid calls behind that window: `removeBackground()`,
   `generateRing()`, `generateBackground()`, plus prompt templating (`fillTemplate()`),
   `presetToModelParams()` / `listPresets()` / `loadPresets()` (the last tells a failed settings
@@ -75,6 +84,10 @@ Everything lives in `scripts/` (~4100 lines total):
   through it. Never notifies; callers report its errors.
 - **`image-compositor.js`** — pure canvas code (no Foundry/Runware imports): `compositeLayers()`,
   `punchCircle()`, `loadBitmap()`. Only same-origin or data sources, so the canvas never taints.
+  A layer's optional `mask` (alpha, stretched over the layer's box) is applied with
+  `destination-in` on a canvas of its own, so it never cuts into the layers beneath; with
+  `maskExemptsClip` the mask is unioned with the layer's `clipCircle` (at output resolution)
+  instead of intersected.
 - **`token-ring.js`** — `getDynamicRingInfo()` (is a core dynamic ring available, and its label),
   colour parsing and `subject.scale` clamping.
 - **`dialog.js`** — `RunwareImageDialog`, the generation form. Owns preset application, clamping
@@ -130,6 +143,17 @@ them in the cache, but Cancel or closing the window discards those paid results.
 - **Custom ring**: generated, background-removed, centre punched (`punchCircle`), then **baked**
   into a static `TOKEN_SIZE` WebP with `ring.enabled = false`. Registering it as a world ring was
   rejected: ring styles are world-global and registration only happens at startup, needing a reload.
+- **Ring overlap** (`plan.token.overlapMask`): `null`, or `{ key, src }` with `src` a PNG data URI
+  of the `OVERLAP_MASK_SIZE` mask and `key` a hash of its alpha. It only applies with
+  `clipSubject` and a dynamic/custom ring (`_readPlan()` leaves it `null` otherwise, and
+  `getOverlapMaskSource()` in `module.js` re-checks that and accepts only `data:image/png`). The
+  mask lives in the subject layer's **box** space (the square the subject is `contain`-fitted
+  into), so it follows the framing and fits both rings. Custom: `[background, subject clipped,
+  ring, subject masked (token circle)]` - the ring sits between, so painted parts are drawn twice.
+  Dynamic: `[background, ONE subject layer kept inside the clip OR painted]` (`maskExemptsClip`;
+  Foundry draws its ring under the subject texture), so semi-transparent edges aren't doubled. `clipSubject` already forces compositing, so an empty mask changes nothing,
+  including the no-compositing fast path. The saved-token key (`saveOutputOnce()`) swaps `src`
+  for `key`; the mask is free local compositing like the framing and never enters an asset key.
 - No ring / custom ring set `ring.enabled = false`, so "No ring" switches off an existing ring.
 - The world setting `core.prototypeTokenOverrides` can force ring settings per actor type and beats
   our update. Documented in the dialog; don't fight it.
