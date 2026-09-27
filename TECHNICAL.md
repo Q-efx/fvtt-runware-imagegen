@@ -99,8 +99,15 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
   requests reuse the generation form's model, LoRA, VAE, embeddings, steps and CFG scale (not the
   seed), or those of the preset picked in the window, re-clamped against `LIMITS`
 - **Presets**: `presetToModelParams()` turns a stored preset into the same ModelParams a generation
-  with that preset sends (without the LoRA trigger); `listPresets()` lists the valid ones by name,
-  and `loadPresets()` reads the setting, reporting a failed read separately from "no presets"
+  with that preset sends (without the LoRA trigger); `listPresets()` lists the valid ones (the
+  GM's own by name, then the built-ins), and `loadPresets()` reads the setting plus the enabled
+  built-in presets (`withBuiltinPresets()`), reporting a failed read separately from "no presets"
+- **Model restrictions**: `requestSingleImage()` and the generation dialog pass every request
+  through `applyModelRestrictions()` (`model-catalog.js`), which drops the fields a prompt-only
+  partner model rejects (steps, CFG scale, LoRA, VAE, embeddings, and usually the negative prompt)
+  and refuses an image below the model's minimum pixel count before anything is paid. It also
+  sets the most permissive moderation the provider allows (FLUX.2 `safetyTolerance` 5, GPT Image
+  `moderation: 'low'`); Runware's own NSFW check is off by default and never requested
 - **Background requests**: `getBackgroundRequest(plan, 'portrait'|'token')` is the one place a
   background's prompts, size, model settings and cache key are computed (a token sharing the
   portrait's background gets the portrait's request); the pricing and `executeOutputPlan()` use it
@@ -335,6 +342,7 @@ runware-imagegen/
 │   ├── image-compositor.js # Canvas compositing
 │   ├── token-ring.js      # Dynamic ring helpers
 │   ├── preset-config.js   # GM-only preset manager
+│   ├── model-catalog.js   # Built-in presets, partner-model request rules
 │   ├── file-handler.js    # File operations
 │   ├── runware-client.js  # Shared Runware SDK client
 │   ├── runware-connection.js # Fast API-key check

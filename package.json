@@ -1,6 +1,6 @@
 {
   "name": "runware-imagegen",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "FoundryVTT module for AI image generation using Runware SDK",
   "main": "scripts/module.js",
   "scripts": {

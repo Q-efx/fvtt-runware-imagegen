@@ -11,10 +11,12 @@
  *
  * The dialog owns the UI and builds an OutputPlan; module.js owns the work
  * (removal, generation, compositing, saving) through the `onApply` callback.
- * Nothing is paid for or saved before Apply, except the explicit, labelled
- * "Generate ring" and "Preview background" buttons. Their results go into the
- * same assetCache entries Apply reads, so a previewed background is reused,
- * not bought twice; they are only saved on Apply. Rings and backgrounds use
+ * Nothing is paid for or saved before Apply, except the subject's background
+ * removal - started as soon as the chosen outputs need it, so the previews
+ * show the cut-out character - and the explicit, labelled "Generate ring" and
+ * "Preview background" buttons. Their results go into the same assetCache
+ * entries Apply reads, so nothing is bought twice; they are only saved on
+ * Apply. Rings and backgrounds use
  * the generation's model settings, or a generation preset picked at the top
  * of the window.
  */
@@ -42,7 +44,8 @@ import {
   clampDimension,
   tokenBackgroundSize,
   loadPresets,
-  hasImageModel
+  hasImageModel,
+  planNeedsSubject
 } from './asset-generation.js';
 import {
   getDynamicRingInfo,
@@ -82,7 +85,8 @@ const PAINTING_TITLE = 'Paint the parts that pass over the ring';
 // What each in-dialog paid call blocks closing with, see close().
 const ASSET_TASK_MESSAGES = {
   ring: 'Please wait until the ring is generated.',
-  background: 'Please wait until the background preview finishes.'
+  background: 'Please wait until the background preview finishes.',
+  removal: 'Please wait until the background is removed.'
 };
 
 /**
@@ -254,8 +258,12 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
 
     this._busy = false;            // Apply is running
     // The in-dialog paid call that is running: 'ring' ("Generate ring"),
-    // 'background' ("Preview background"), or null. See _isWorking().
+    // 'background' ("Preview background"), 'removal' (the automatic subject
+    // removal, see _autoRemoveBackground()), or null. See _isWorking().
     this._assetTask = null;
+    // Set once the automatic removal failed: it is not retried on every
+    // change after that; Apply and "Preview background" still remove it.
+    this._autoRemovalFailed = false;
     // Data URI of the last background each preview showed from the cache. It
     // stays on screen, marked outdated, once the prompt or model no longer
     // matches it; see _getBackgroundPreview().
@@ -481,6 +489,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       if (newRingRadio) newRingRadio.checked = true;
     }
     this._refresh();
+    this._autoRemoveBackground();
   }
 
   _onClose(options) {
@@ -691,6 +700,43 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
         this._setControlsDisabled(false);
         this._setStatus(null);
         // Also after a failure: a removed subject may be cached by now.
+        this._refresh();
+      }
+    }
+  }
+
+  /**
+   * Remove the subject's background (the `backgroundRemovalModel` setting,
+   * Bria by default) as soon as the chosen outputs need it - the token
+   * always does - so the previews show the cut-out character before Apply.
+   * Paid, once per image: the result is the assetCache entry Apply and
+   * "Preview background" read. Called on the first render and on every form
+   * change; does nothing while it isn't needed, is cached, something else
+   * runs, or after it failed once.
+   */
+  async _autoRemoveBackground() {
+    if (this._isWorking() || this._autoRemovalFailed || !this.rendered) return;
+    if (this.assetCache.get(SUBJECT_CACHE_KEY)?.imageData) return;
+    if (!planNeedsSubject(this._readPlan().plan)) return;
+
+    this._assetTask = 'removal';
+    this._setControlsDisabled(true);
+    this._setStatus('Removing background…');
+
+    try {
+      const subject = await removeBackground(this.imageData);
+      this.assetCache.set(SUBJECT_CACHE_KEY, { imageData: subject, savedPath: null });
+    } catch (error) {
+      this._autoRemovalFailed = true;
+      console.error(`${MODULE_NAME} | Background removal failed:`, error);
+      const message = `Background removal failed (Apply will try again): ${getRunwareErrorMessage(error)}`;
+      if (this.rendered) this._showError(message);
+      ui.notifications.error(`${MODULE_NAME}: ${message}`);
+    } finally {
+      this._assetTask = null;
+      if (this.rendered) {
+        this._setControlsDisabled(false);
+        this._setStatus(null);
         this._refresh();
       }
     }
@@ -1304,7 +1350,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
         : 'Nothing painted: the whole character stays inside the ring.'];
       // Same size as the removed subject, so the mask still fits it on Apply.
       if (!this.assetCache.get(SUBJECT_CACHE_KEY)?.imageData) {
-        parts.push('The preview shows the original image; its background is removed on Apply.');
+        parts.push('The preview shows the original image until its background is removed.');
       }
       status.textContent = parts.join(' ');
     }
@@ -1342,6 +1388,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
 
     if (!this._isWorking()) this._showError(null);
     this._refresh();
+    this._autoRemoveBackground();
   }
 
   _refresh() {

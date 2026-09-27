@@ -3,6 +3,24 @@
     Configure shared Runware presets. Players can apply these presets in the image generation dialog, but only GMs can edit them.
   </p>
 
+  <fieldset class="builtin-presets">
+    <legend>Built-in presets</legend>
+    <p class="notes">
+      Premium models at 1024x1536 (2:3). Every image is billed to your Runware key, so only the presets you tick are offered to users.
+      These models ignore steps, CFG scale, LoRA, VAE and embeddings, and most of them the negative prompt; the module leaves those out of their requests.
+    </p>
+    {{#each builtinPresets}}
+      <label class="builtin-preset">
+        <input type="checkbox" name="builtin-preset-enabled" data-preset-id="{{this.id}}" {{#if this.enabled}}checked{{/if}}>
+        <span class="builtin-preset-name">{{this.name}}</span>
+        <span class="builtin-preset-cost">{{this.cost}} per image</span>
+        <small class="builtin-preset-details"><code>{{this.model}}</code>{{#if this.note}} - {{this.note}}{{/if}}</small>
+      </label>
+    {{/each}}
+  </fieldset>
+
+  <h3 class="custom-presets-heading">Your presets</h3>
+
   <div class="preset-list">
     {{#if presets.length}}
       {{#each presets}}

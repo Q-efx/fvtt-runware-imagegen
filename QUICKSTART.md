@@ -31,6 +31,7 @@ Start reading here: `scripts/module.js`
 - `scripts/image-compositor.js` - Canvas compositing (layers, circular clips)
 - `scripts/token-ring.js` - Foundry dynamic ring helpers
 - `scripts/preset-config.js` - GM-only preset manager
+- `scripts/model-catalog.js` - Built-in presets and partner-model request rules
 - `scripts/file-handler.js` - File operations
 - `templates/image-dialog.hbs` - Dialog HTML template
 - `templates/output-dialog.hbs` - "Use this image" template
@@ -158,6 +159,7 @@ runware-imagegen/
 │   ├── image-compositor.js # Canvas compositing
 │   ├── token-ring.js      # Dynamic ring helpers
 │   ├── preset-config.js   # Preset manager
+│   ├── model-catalog.js   # Built-in presets
 │   ├── file-handler.js    # File ops ⭐
 │   ├── runware-client.js  # Shared Runware SDK client
 │   └── constants.js       # Module id/name, limits, token geometry

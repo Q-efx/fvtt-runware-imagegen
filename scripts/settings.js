@@ -159,10 +159,23 @@ export function registerSettings({ onApiKeyChange } = {}) {
     onChange: (value) => Hooks.callAll('runware-imagegen.presetsUpdated', value)
   });
 
+  // Which built-in presets (model-catalog.js) the GM enabled: { [id]: true }.
+  // A missing id is off. The hook carries no value, so listeners re-read both
+  // settings.
+  game.settings.register(MODULE_ID, 'builtinPresets', {
+    name: 'Runware Built-in Presets',
+    hint: 'Built-in presets the GM enabled for all users.',
+    scope: 'world',
+    config: false,
+    type: Object,
+    default: {},
+    onChange: () => Hooks.callAll('runware-imagegen.presetsUpdated')
+  });
+
   game.settings.registerMenu(MODULE_ID, 'presetManager', {
     name: 'Manage Generation Presets',
     label: 'Manage Presets',
-    hint: 'Define model presets that are available to all players.',
+    hint: 'Enable built-in premium presets and define your own; both are available to all players.',
     icon: 'fas fa-sliders-h',
     type: RunwarePresetConfig,
     restricted: true
