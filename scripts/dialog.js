@@ -9,6 +9,7 @@ import { RunwarePresetConfig } from './preset-config.js';
 import { getRunwareErrorMessage, isInvalidApiKeyError } from './runware-errors.js';
 import { getRunwareClient, downloadRunwareImage, RUNWARE_OUTPUT_PARAMS } from './runware-client.js';
 import { extractModelParams } from './asset-generation.js';
+import { applyModelRestrictions, comparePresets, withBuiltinPresets } from './model-catalog.js';
 
 /**
  * Parse a form value as a finite number, or return null for blank/invalid input.
@@ -108,13 +109,7 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
     const imageWidth = game.settings.get(MODULE_ID, 'imageWidth');
     const imageHeight = game.settings.get(MODULE_ID, 'imageHeight');
     const numberResults = game.settings.get(MODULE_ID, 'numberResults');
-    const presetsSetting = game.settings.get(MODULE_ID, 'generationPresets') ?? [];
-    const presets = Array.isArray(presetsSetting)
-      ? presetsSetting
-          .map((preset) => this._mapPreset(preset))
-          .filter((preset) => preset !== null)
-          .sort((a, b) => a.name.localeCompare(b.name))
-      : [];
+    const presets = this._mapPresets(game.settings.get(MODULE_ID, 'generationPresets'));
 
     this.availablePresets = presets;
     const presetOptions = presets.reduce((acc, preset) => {
@@ -516,16 +511,28 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
       .filter((embedding) => embedding.model);
   }
 
-  _handlePresetsUpdated(value) {
-    if (Array.isArray(value)) {
-      this.availablePresets = value
-        .map((preset) => this._mapPreset(preset))
-        .filter((preset) => preset !== null)
-        .sort((a, b) => a.name.localeCompare(b.name));
+  /**
+   * The presets offered in the form: the stored ones plus the enabled
+   * built-ins (model-catalog.js), valid ones only, in comparePresets() order.
+   * @param {Array<Object>} storedPresets - the `generationPresets` setting
+   */
+  _mapPresets(storedPresets) {
+    return withBuiltinPresets(storedPresets)
+      .map((preset) => this._mapPreset(preset))
+      .filter((preset) => preset !== null)
+      .sort(comparePresets);
+  }
 
-      if (this.appliedPresetId && !this.availablePresets.some((preset) => preset.id === this.appliedPresetId)) {
-        this.appliedPresetId = null;
-      }
+  /**
+   * @param {Array<Object>} [value] - the new `generationPresets` setting;
+   *   absent when the GM toggled a built-in preset
+   */
+  _handlePresetsUpdated(value) {
+    const stored = Array.isArray(value) ? value : game.settings.get(MODULE_ID, 'generationPresets');
+    this.availablePresets = this._mapPresets(stored);
+
+    if (this.appliedPresetId && !this.availablePresets.some((preset) => preset.id === this.appliedPresetId)) {
+      this.appliedPresetId = null;
     }
 
     if (this.rendered) {
@@ -677,6 +684,14 @@ export class RunwareImageDialog extends foundry.applications.api.HandlebarsAppli
         throw new Error(`Seed must be a whole number between 1 and ${Number.MAX_SAFE_INTEGER}.`);
       }
       requestParams.seed = seed;
+    }
+
+    // Before the request, so the params handed on to rings and backgrounds
+    // (extractModelParams) are the ones actually sent.
+    const dropped = applyModelRestrictions(requestParams);
+    if (dropped.length > 0) {
+      ui.notifications.info(`${MODULE_NAME}: ${requestParams.model} does not use ${dropped.join(', ')}; `
+        + 'generating without them.');
     }
 
     console.debug(`${MODULE_NAME} | Generating image with parameters:`, requestParams);

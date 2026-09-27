@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [v1.3.0]
+
+### Added
+
+- **Built-in premium presets**: eight presets for premium Runware models at 1024x1536 (2:3) -
+  Qwen-Image 3.0 and 3.0 Pro, FLUX.2 pro and max, GPT Image 2, GPT-Image-2.5 Flare and Sunburst,
+  Seedream 5.0 Pro. They ship with the module, are off by default, and the GM enables each one in
+  **Manage Presets**; enabled ones appear in the generation dialog and in the "Model for rings &
+  backgrounds" list next to the GM's own presets.
+- Requests to these models leave out what they reject (steps, CFG scale, LoRA, VAE, embeddings,
+  and the negative prompt except for Qwen), including ring and background requests, and a too
+  small size is refused before anything is paid.
+- Dark, bloody and horror characters are allowed as far as each model permits: FLUX.2 requests
+  use the most permissive safety tolerance (5) and GPT Image requests the `low` moderation
+  level. Runware's own NSFW check stays off. Seedream and Qwen have no such setting, and the
+  providers' own content policies still apply.
+
+### Changed
+
+- The "Use this image" window removes the character's background (Bria RMBG 2.0 by default) as
+  soon as it opens, instead of on Apply, whenever the token or the portrait needs it - so both
+  previews show the cut-out character. It is paid once per image and reused by Apply; closing the
+  window waits until it finishes.
+
 ## [v1.2.0]
 
 ### Added

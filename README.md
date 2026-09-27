@@ -7,6 +7,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 - 🎨 **Easy Access**: Generate images directly from actor sheets with a button in the header bar (next to the prototype token button)
 - 🤖 **Multiple AI Models**: Support for various AI models including Stable Diffusion, SDXL, and custom models from CivitAI
 - 🧰 **GM Presets**: Game Masters can curate shared presets (model, dimensions, steps, CFG scale, LoRA, VAE, embeddings) for players to apply instantly
+- 💎 **Built-in Premium Presets**: eight ready-made 2:3 (1024x1536) presets for premium models - Qwen-Image 3.0, FLUX.2 pro and max, GPT Image, Seedream 5.0 Pro - that the GM switches on one by one
 - 🎯 **Advanced Controls**:
   - Positive and negative prompts
   - Adjustable image dimensions (256x256 to 2048x2048)
@@ -72,6 +73,8 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 
 ### Portrait and Token Options
 
+As soon as the window opens, the character's background is removed (paid: one background removal with the **Background Removal Model** setting, Bria RMBG 2.0 by default) whenever the token is set or the portrait background is removed or replaced, so both previews show the cut-out character. It happens once per image - Apply, **Back to images** and picking the same image again reuse it - and again later only if you switch to an option that needs it.
+
 **Portrait - Background**
 - **Keep original**: the image exactly as generated
 - **Remove background**: preselected when **Remove Background** is ticked in the generation form
@@ -89,7 +92,7 @@ A FoundryVTT module that integrates [Runware AI](https://runware.ai) image gener
 
 **Preview background**: under each background prompt, **Preview background** generates the background now so you can see it in the preview before applying (paid: one image, plus the character's background removal the first time - Apply needs that removal anyway). Apply reuses the previewed background instead of paying again. Click **Regenerate background** for another one. If you edit the prompt or the model afterwards, the old preview stays visible but dimmed and marked *outdated*, and Apply generates a new background; change it back and the preview is used again. Like a generated ring, a previewed background is only saved on Apply - **Back to images** keeps it, **Cancel** discards it.
 
-**Model for rings & backgrounds** (top of the window): **Same as generation** uses the model and settings from the generation form; or pick one of the GM's presets (its model, LoRA, VAE, embeddings, steps and CFG scale). A preset's LoRA trigger word is not added to the ring and background prompts automatically - add it yourself if you want it. GMs can open the preset manager from the button next to the list; saved changes show up in an open window right away.
+**Model for rings & backgrounds** (top of the window): **Same as generation** uses the model and settings from the generation form; or pick one of the GM's presets, including the built-in presets the GM enabled (its model, LoRA, VAE, embeddings, steps and CFG scale). A preset's LoRA trigger word is not added to the ring and background prompts automatically - add it yourself if you want it. GMs can open the preset manager from the button next to the list; saved changes show up in an open window right away.
 
 If Apply fails, press it again: results you already paid for are reused, also after **Back to images**.
 
@@ -122,6 +125,24 @@ The module includes quick-select buttons for popular models:
 - **Stable Diffusion XL** (`runware:101@1`)
 - **Realistic Vision** (`civitai:4201@130072`)
 - **DreamShaper** (`civitai:4384@128713`)
+
+#### Built-in Premium Presets
+The GM can enable these in **Manage Presets** (all are off by default, because every image is billed to the GM's key). Each one sets the model and a 2:3 size of 1024x1536:
+
+| Preset | Model | Approx. cost per image |
+| --- | --- | --- |
+| Premium Illustration (Qwen-Image 3.0) | `alibaba:qwen-image@3.0` | ~$0.03 |
+| Premium Illustration+ (Qwen-Image 3.0 Pro) | `alibaba:qwen-image@3.0-pro` | ~$0.04-0.075 |
+| Premium Painterly (FLUX.2 pro) | `bfl:5@1` | ~$0.04 |
+| Premium Prompt-Following (GPT-Image-2.5 Flare) | `openai:gpt-image@2.5-flare` | ~$0.03-0.05 |
+| Premium (GPT Image 2) | `openai:gpt-image@2` | ~$0.03-0.05 |
+| Premium Detail (Seedream 5.0 Pro) | `bytedance:seedream@5.0-pro` | ~$0.05-0.10 |
+| Showcase (FLUX.2 max) | `bfl:7@1` | ~$0.09 |
+| Showcase (GPT-Image-2.5 Sunburst) | `openai:gpt-image@2.5-sunburst` | ~$0.06+ |
+
+These models take no steps, CFG scale, LoRA, VAE or embeddings, and only the two Qwen models take a negative prompt. The module leaves those fields out of their requests (also for rings and backgrounds) and tells you when it dropped something you entered. GPT Image needs at least 655,360 pixels and Seedream 5.0 Pro at least 921,600, so keep their portraits at 1024x1536: the token background is a square of the portrait's shorter side.
+
+Dark, bloody and horror characters are allowed as far as each model permits: FLUX.2 requests use the most permissive safety tolerance and GPT Image requests the `low` moderation level. Runware's own NSFW check is never switched on. Seedream and Qwen have no such setting, and every provider's own content policy still applies.
 
 #### Custom Models
 You can use any model from:
@@ -264,6 +285,11 @@ For issues, feature requests, or questions:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for the full, version-by-version history.
+
+### Version 1.3.0
+- Built-in premium presets: eight 2:3 presets for Qwen-Image 3.0 / 3.0 Pro, FLUX.2 pro and max, GPT Image 2 / 2.5 Flare / 2.5 Sunburst and Seedream 5.0 Pro, off until the GM enables them in Manage Presets
+- Requests to these models leave out the fields they reject, and FLUX.2 and GPT Image use their most permissive content moderation so dark and gory characters aren't refused
+- The "Use this image" window removes the character's background as soon as it opens, so both previews show the cut-out
 
 ### Version 1.2.0
 - Ring overlap: paint the parts of the character that should reach over a dynamic or custom ring (a weapon arm, a wing) while the rest stays inside - brush, eraser, size, Undo and Clear, applied locally on Apply at no extra cost

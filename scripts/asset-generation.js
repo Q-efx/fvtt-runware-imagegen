@@ -26,6 +26,7 @@ import {
 import { getRunwareClient, downloadRunwareImage, RUNWARE_OUTPUT_PARAMS } from './runware-client.js';
 import { getRunwareErrorMessage } from './runware-errors.js';
 import { punchCircle, toDataURI } from './image-compositor.js';
+import { applyModelRestrictions, comparePresets, withBuiltinPresets } from './model-catalog.js';
 
 /**
  * @typedef {Object} ModelParams
@@ -219,8 +220,10 @@ export function presetToModelParams(rawPreset) {
 }
 
 /**
- * Valid generation presets as ModelParams, sorted by name.
- * @param {Array<Object>} rawPresets - the stored presets, see loadPresets()
+ * Valid generation presets as ModelParams, in comparePresets() order (the
+ * GM's own by name, then the built-ins).
+ * @param {Array<Object>} rawPresets - the stored and enabled built-in presets,
+ *   see loadPresets()
  * @returns {Array<{id: string, name: string, modelParams: ModelParams, loraTrigger: string}>}
  *   loraTrigger is '' unless the preset has a LoRA with a trigger word
  */
@@ -245,12 +248,13 @@ export function listPresets(rawPresets) {
         : ''
     });
   }
-  return presets.sort((a, b) => a.name.localeCompare(b.name));
+  return presets.sort(comparePresets);
 }
 
 /**
- * The world's generation presets (listPresets()), telling a failed read of
- * the `generationPresets` setting apart from "no presets".
+ * The world's generation presets (listPresets()): the GM's own plus the
+ * built-in presets the GM enabled, telling a failed read of the
+ * `generationPresets` setting apart from "no presets".
  * @param {*} [rawPresets] - the stored presets, as the `presetsUpdated` hook
  *   passes them; the setting is read when this is not an array
  * @returns {{presets: Array<Object>, loaded: boolean}} loaded is false (and
@@ -270,7 +274,7 @@ export function loadPresets(rawPresets) {
     console.warn(`${MODULE_ID} | The generation presets setting is not a list:`, value);
     return { presets: [], loaded: false };
   }
-  return { presets: listPresets(value), loaded: true };
+  return { presets: listPresets(withBuiltinPresets(value)), loaded: true };
 }
 
 /**
@@ -381,6 +385,9 @@ async function requestSingleImage({ prompt, negativePrompt, modelParams, width, 
   if (isNonBlankString(negativePrompt)) {
     requestParams.negativePrompt = negativePrompt.trim();
   }
+  // Prompt-only partner models reject the negative prompt the ring and
+  // background templates always fill in, and steps/CFG/LoRA from the preset.
+  applyModelRestrictions(requestParams);
 
   console.debug(`${MODULE_ID} | Requesting asset image:`, requestParams);
 
@@ -545,6 +552,17 @@ function pluralize(count, noun) {
 }
 
 /**
+ * Whether an OutputPlan needs the subject with its background removed: a
+ * portrait that doesn't keep its background, or any token (always transparent).
+ * @param {Object|null} plan - an OutputPlan
+ * @returns {boolean}
+ */
+export function planNeedsSubject(plan) {
+  const portrait = plan?.portrait ?? null;
+  return Boolean((portrait && portrait.background !== 'keep') || plan?.token);
+}
+
+/**
  * Count the paid calls an Apply would make, skipping anything already in the
  * cache from an earlier attempt. Ring generation is not counted: it is its
  * own explicit, separately labelled button.
@@ -555,12 +573,9 @@ function pluralize(count, noun) {
  */
 export function summarizePaidCalls(plan, cache) {
   const isCached = (key) => Boolean(cache?.get?.(key)?.imageData);
-  const portrait = plan?.portrait ?? null;
-  const token = plan?.token ?? null;
 
   // At most one subject removal per Apply, shared by portrait and token.
-  const needsSubject = (portrait && portrait.background !== 'keep') || Boolean(token);
-  const removals = needsSubject && !isCached(SUBJECT_CACHE_KEY) ? 1 : 0;
+  const removals = planNeedsSubject(plan) && !isCached(SUBJECT_CACHE_KEY) ? 1 : 0;
 
   let backgroundGenerations = 0;
   const portraitKey = getBackgroundRequest(plan, 'portrait')?.key ?? null;

@@ -3,6 +3,7 @@
  */
 
 import { MODULE_ID, MODULE_NAME, LIMITS } from './constants.js';
+import { getBuiltinPresetStates } from './model-catalog.js';
 
 export class RunwarePresetConfig extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2
@@ -10,6 +11,9 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
   constructor(options = {}) {
     super(options);
     this.presets = null;
+    // The built-in presets' checkboxes, { [id]: boolean }; null until first
+    // rendered, then kept across re-renders like this.presets.
+    this.builtinStates = null;
   }
 
   static DEFAULT_OPTIONS = {
@@ -60,8 +64,18 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       this.presets = this._loadPresets();
     }
 
+    if (!this.builtinStates) {
+      this.builtinStates = Object.fromEntries(
+        getBuiltinPresetStates().map((preset) => [preset.id, preset.enabled])
+      );
+    }
+
     return {
       presets: this.presets.map((preset) => this._clonePreset(preset)),
+      builtinPresets: getBuiltinPresetStates().map((preset) => ({
+        ...preset,
+        enabled: this.builtinStates[preset.id] === true
+      })),
       limits: LIMITS
     };
   }
@@ -124,19 +138,54 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
       presets.push(preset);
     }
 
+    this._syncBuiltinStatesFromForm();
+    const builtinStates = this._readBuiltinStatesForSave();
+
     try {
       // game.settings.set() triggers the setting's own onChange callback
-      // (registered in module.js), which dispatches 'presetsUpdated' to every
+      // (registered in settings.js), which dispatches 'presetsUpdated' to every
       // open dialog. Dispatching it again here would fire the hook twice per
-      // save, so this is the only place that call happens.
+      // save, so this is the only place that call happens. The built-in
+      // states are only written when they changed, for the same reason.
       await game.settings.set(MODULE_ID, 'generationPresets', presets);
+      if (builtinStates) await game.settings.set(MODULE_ID, 'builtinPresets', builtinStates);
       this.presets = this._loadPresets();
+      this.builtinStates = null;
       ui.notifications.info(`${MODULE_NAME}: Presets saved.`);
       await this.close();
     } catch (error) {
       console.error(`${MODULE_NAME} | Failed to save presets`, error);
       ui.notifications.error(`${MODULE_NAME}: Failed to save presets - ${error.message}`);
     }
+  }
+
+  /**
+   * Read the built-in presets' checkboxes into this.builtinStates, so a
+   * re-render (adding a preset, say) keeps unsaved ticks.
+   */
+  _syncBuiltinStatesFromForm() {
+    const form = this.form ?? this.element;
+    if (!(form instanceof HTMLFormElement)) return;
+    const boxes = form.querySelectorAll('input[name="builtin-preset-enabled"]');
+    if (boxes.length === 0) return;
+    this.builtinStates = Object.fromEntries(
+      Array.from(boxes).map((box) => [box.dataset.presetId, box.checked])
+    );
+  }
+
+  /**
+   * The `builtinPresets` value to save ({ [id]: true } for each enabled
+   * preset), or null when nothing changed.
+   * @returns {Object<string, boolean>|null}
+   */
+  _readBuiltinStatesForSave() {
+    const saved = getBuiltinPresetStates();
+    const states = this.builtinStates ?? {};
+    const changed = saved.some((preset) => (states[preset.id] === true) !== preset.enabled);
+    if (!changed) return null;
+    return Object.fromEntries(
+      saved.filter((preset) => states[preset.id] === true).map((preset) => [preset.id, true])
+    );
   }
 
   _loadPresets() {
@@ -210,6 +259,7 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
 
   _addPreset() {
     this._syncPresetsFromForm();
+    this._syncBuiltinStatesFromForm();
 
     if (!Array.isArray(this.presets)) {
       this.presets = [];
@@ -235,12 +285,14 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
   _removePreset(presetId) {
     if (!presetId) return;
     this._syncPresetsFromForm();
+    this._syncBuiltinStatesFromForm();
     this.presets = this.presets.filter((preset) => preset.id !== presetId);
     this.render(true);
   }
 
   _addEmbedding(presetId) {
     this._syncPresetsFromForm();
+    this._syncBuiltinStatesFromForm();
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) return;
     preset.embeddings.push({ model: '', weight: 1 });
@@ -249,6 +301,7 @@ export class RunwarePresetConfig extends foundry.applications.api.HandlebarsAppl
 
   _removeEmbedding(presetId, index) {
     this._syncPresetsFromForm();
+    this._syncBuiltinStatesFromForm();
     const preset = this.presets.find((p) => p.id === presetId);
     if (!preset) return;
     if (index < 0 || index >= preset.embeddings.length) return;

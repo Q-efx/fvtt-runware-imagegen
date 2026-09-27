@@ -161,9 +161,40 @@
   padding: 1rem;
   background: rgba(0, 0, 0, 0.1);
 }
-.runware-preset-form fieldset.preset-row legend {
+.runware-preset-form fieldset.preset-row legend,
+.runware-preset-form fieldset.builtin-presets legend {
   padding: 0 0.5rem;
   font-weight: bold;
+}
+.runware-preset-form fieldset.builtin-presets {
+  border: 1px solid var(--color-border-dark-tertiary);
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.runware-preset-form .builtin-preset {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 0.5rem;
+  align-items: center;
+  cursor: pointer;
+}
+.runware-preset-form .builtin-preset input {
+  margin: 0;
+}
+.runware-preset-form .builtin-preset-cost {
+  color: var(--color-text-dark-secondary);
+  white-space: nowrap;
+}
+.runware-preset-form .builtin-preset-details {
+  grid-column: 2 / -1;
+  color: var(--color-text-dark-secondary);
+}
+.runware-preset-form .custom-presets-heading {
+  margin: 0 0 0.5rem;
 }
 .runware-preset-form .form-group {
   display: flex;

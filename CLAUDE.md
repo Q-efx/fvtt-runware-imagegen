@@ -63,7 +63,7 @@ Everything lives in `scripts/` (~5800 lines total):
   last window's entries win when another image is picked. Once cached, the removed subject and
   backgrounds are shown in the preview (data URIs cached per entry in a `WeakMap`, `src` only set
   on change); after a prompt/model edit the last background stays, dimmed as `data-stale`.
-  `_isWorking()` (`_busy` = Apply, `_assetTask` = `'ring'`/`'background'`) blocks close, Back,
+  `_isWorking()` (`_busy` = Apply, `_assetTask` = `'ring'`/`'background'`/`'removal'`) blocks close, Back,
   Apply, framing, overlap painting and the other paid button. The **ring overlap** editor ("Paint
   overlap", only with `clipSubject` and a dynamic/custom ring) paints on a `<canvas>` in the token
   preview (`data-painting` makes it 320px; the same pointer listeners paint instead of framing).
@@ -100,7 +100,20 @@ Everything lives in `scripts/` (~5800 lines total):
 - **`runware-connection.js`** / **`runware-errors.js`** — the fast standalone API-key check (works
   around an SDK auth-timeout bug) and normalisation of the SDK's non-`Error` rejections.
 - **`preset-config.js`** — `RunwarePresetConfig`, the GM-only preset manager registered via
-  `game.settings.registerMenu`. Presets are stored in the world setting `generationPresets`.
+  `game.settings.registerMenu`. Presets are stored in the world setting `generationPresets`;
+  its "Built-in presets" checkboxes write `builtinPresets` (`{ [id]: true }`, only when changed).
+- **`model-catalog.js`** — `BUILTIN_PRESETS` (premium partner models at 1024x1536, shipped in code,
+  ids `builtin:*`, **off** unless the GM enabled them) and `RESTRICTED_MODELS`, keyed by AIR id.
+  `withBuiltinPresets()` is how both preset lists (dialog.js, `loadPresets()`) add the enabled
+  built-ins; `comparePresets()` sorts the GM's own by name, then the built-ins. Every
+  `requestImages()` call goes through `applyModelRestrictions()` first, which drops what those
+  models reject (steps, CFG, LoRA, VAE, embeddings, negativePrompt unless allowed) and throws below
+  their `minPixels`. A new partner model needs an entry there, or ring/background requests (which
+  always carry a negative prompt) fail. It also sets the loosest provider moderation
+  (`PERMISSIVE_MODERATION`: FLUX.2 `providerSettings.bfl.safetyTolerance: 5`, GPT Image
+  `settings.moderation: 'low'`) so dark/gory characters aren't refused; give a new partner model a
+  `moderation` entry if its provider has one, and check its range (FLUX.2 tops out at 5, not 6).
+  Runware's own `safety.checkContent` is off by default and deliberately never sent.
 - **`file-handler.js`** — `ImageFileHandler`, static-only class for base64 → Blob → FilePicker upload,
   recursive directory creation, filename numbering, and `listRings()` for the custom-ring picker.
 
@@ -116,10 +129,13 @@ sheet button → openImageGenerationDialog() [module.js]
     → handleGeneratedImage() [module.js]
       → showImageSelectionDialog() (only when >1 image)
       → RunwareOutputDialog.wait() [output-dialog.js] → 'applied' | 'back' (re-pick) | 'cancelled'
-          "Generate ring" / "Preview background" buttons: the only paid calls before Apply
+          _autoRemoveBackground(): removes the subject's background on open / on form change
+            whenever planNeedsSubject() (the token always does), so the previews show the cut-out;
+            not retried after a failure (Apply retries)
+          "Generate ring" / "Preview background" buttons: the other paid calls before Apply
             (removal + background into the same assetCache entries Apply reuses, saved on Apply)
         → Apply → executeOutputPlan() [module.js]  (plan.modelParams = the window's model choice)
-          → removeBackground() once for every output that needs the subject (cached)
+          → removeBackground() once when planNeedsSubject() (usually already cached)
           → generateBackground() per getBackgroundRequest(): portrait / token, or one shared (cached)
           → compositeLayers() [image-compositor.js]
           → saveImage(): ring, backgrounds, portrait, token
@@ -268,7 +284,8 @@ through `clampDimension()`.
   blank. `{scene}` is deliberately a neutral default, not the character prompt, which would paint
   the character into its own background. `generationPresets`
   is `config: false` and edited only through the preset menu; changes fire the custom hook
-  `runware-imagegen.presetsUpdated`, which open dialogs listen for.
+  `runware-imagegen.presetsUpdated`, which open dialogs listen for. `builtinPresets` fires the same
+  hook **without** a value, so listeners re-read `generationPresets` when the argument isn't an array.
 - **`images/` is gitignored** — generated output must not be committed.
 
 ## Releasing

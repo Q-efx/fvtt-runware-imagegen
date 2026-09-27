@@ -53,6 +53,7 @@ runware-imagegen/
 │   ├── image-compositor.js # Canvas compositing
 │   ├── token-ring.js   # Foundry dynamic ring helpers
 │   ├── preset-config.js # GM-only preset manager
+│   ├── model-catalog.js # Built-in presets, partner-model request rules
 │   ├── file-handler.js # File saving utilities
 │   └── constants.js    # Module id/name, limits, token geometry
 ├── styles/
@@ -141,10 +142,13 @@ so up front rather than being charged for a request whose result cannot be saved
 - `{prompt}` is replaced with the character's generation prompt (this tends to paint the character into the background, so the default doesn't use it)
 - Leave empty to restore the default
 
+### Built-in Presets
+**Manage Presets** (GM only) lists eight built-in presets for premium models (Qwen-Image 3.0, FLUX.2 pro and max, GPT Image, Seedream 5.0 Pro), each at 1024x1536 (2:3), with an approximate price per image. They are all **off** by default; tick the ones your players may use and click **Save Presets**. Enabled presets show up in the generation dialog's preset list and in the "Model for rings & backgrounds" list; disabled ones are hidden from everyone. Their state is stored in the hidden world setting `builtinPresets`.
+
 ### What costs money
 Every Runware call is charged to the API key's account:
 - **Generating images** in the generation dialog
-- **One background removal** per Apply whenever a token is set or the portrait background is removed or replaced (about $0.018 with `bria:2@1`, $0.0006 with `runware:109@1` at the time of writing)
+- **One background removal** per picked image whenever a token is set or the portrait background is removed or replaced, made as soon as the "Use this image" window opens so the previews show the cut-out character (about $0.018 with `bria:2@1`, $0.0006 with `runware:109@1` at the time of writing)
 - **One background generation** per generated background - one image with the generation dialog's model and settings, at the portrait's size (square for the token). A token that reuses the portrait's background costs nothing extra
 - **Generate ring**: one 1024x1024 image plus one background removal, charged immediately when clicked. The ring is only saved on Apply, so cancelling afterwards discards it
 

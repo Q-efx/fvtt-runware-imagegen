@@ -23,7 +23,8 @@ import {
   removeBackground,
   generateBackground,
   SUBJECT_CACHE_KEY,
-  getBackgroundRequest
+  getBackgroundRequest,
+  planNeedsSubject
 } from './asset-generation.js';
 import { compositeLayers, getImageSize, toDataURI } from './image-compositor.js';
 import { clampTokenFraming, isNeutralFraming } from './token-ring.js';
@@ -389,7 +390,7 @@ async function executeOutputPlan(actor, original, plan, { setStatus, cache }) {
 
   // One background removal serves every output that needs the bare subject.
   let subject = null;
-  if ((portrait && portrait.background !== 'keep') || token) {
+  if (planNeedsSubject(plan)) {
     const entry = await getCachedAsset(cache, SUBJECT_CACHE_KEY, setStatus, 'Removing background…',
       () => removeBackground(original));
     subject = entry.imageData;
