@@ -16,19 +16,25 @@
         <div class="runware-preview-block" data-preview-block="token">
           <h4>Token</h4>
           <div class="runware-token-preview" data-ring="{{defaultTokenRing}}" data-background="transparent"
-            data-token-framing aria-hidden="true" title="Drag to move, scroll to zoom, double-click to reset">
+            data-token-framing aria-hidden="true" tabindex="-1" title="Drag to move, scroll to zoom, double-click to reset">
             <div class="token-bg" data-preview="token-bg" hidden>
               <img class="token-bg-image" data-preview="token-bg-image" alt="" draggable="false" hidden />
               <span data-preview="token-bg-placeholder">generated</span>
             </div>
             <div class="token-subject-clip" data-preview="token-subject-clip">
-              <img class="token-subject" data-preview="token-subject" alt="" draggable="false" />
+              <img class="token-subject" data-preview="token-subject" data-framed alt="" draggable="false" />
             </div>
             <div class="token-ring" data-preview="token-ring-dynamic" hidden></div>
             <img class="token-ring-image" data-preview="token-ring" alt="" draggable="false" hidden />
+            <!-- Ring overlap: the painted parts of the subject over the ring, and the mask itself while painting -->
+            <div class="token-overlap" data-preview="token-overlap">
+              <img class="token-subject token-subject-overlap" data-preview="token-subject-overlap" data-framed alt="" draggable="false" hidden />
+              <canvas class="token-overlap-mask" data-preview="token-overlap-mask" data-framed hidden></canvas>
+            </div>
+            <div class="token-overlap-cursor" data-preview="token-overlap-cursor" hidden></div>
           </div>
           <div class="runware-token-framing">
-            <small>Drag to move, scroll to zoom.</small>
+            <small data-framing-hint>Drag to move, scroll to zoom.</small>
             <span class="runware-token-framing-zoom" data-framing-zoom>100%</span>
             <button type="button" data-action="resetTokenFraming" title="Reset position and zoom" aria-label="Reset token position and zoom">
               <i class="fas fa-rotate-left"></i>
@@ -141,6 +147,40 @@
                 Keep the character inside the ring
               </label>
               <small>Cuts off whatever reaches past the ring. Untick to let the character break out of the frame.</small>
+            </div>
+
+            <!-- Ring overlap editor (output-dialog.js paints on the token preview) -->
+            <div class="runware-output-subsection runware-overlap" data-section="overlap">
+              <div class="runware-overlap-header">
+                <span class="runware-overlap-title">Ring overlap</span>
+                <button type="button" data-action="toggleOverlapPaint" aria-pressed="false"
+                  title="Paint on the token preview. Leave paint mode to move or zoom the character again.">
+                  <i class="fas fa-paintbrush"></i> <span data-overlap-paint-label>Paint overlap</span>
+                </button>
+              </div>
+              <small>Paint the parts that should pass over the ring, e.g. a weapon arm. Everything else stays inside.</small>
+              <div class="runware-overlap-tools" data-overlap-tools hidden>
+                <button type="button" data-action="setOverlapTool" data-tool="brush" aria-pressed="true"
+                  title="Brush: mark parts that pass over the ring" aria-label="Brush">
+                  <i class="fas fa-paintbrush"></i>
+                </button>
+                <button type="button" data-action="setOverlapTool" data-tool="eraser" aria-pressed="false"
+                  title="Eraser: keep parts inside the ring again" aria-label="Eraser">
+                  <i class="fas fa-eraser"></i>
+                </button>
+                <label class="runware-overlap-size" title="Brush size">
+                  <i class="fas fa-circle-dot" aria-hidden="true"></i>
+                  <input type="range" name="overlapBrushSize" aria-label="Brush size"
+                    value="{{overlapBrush.fallback}}" min="{{overlapBrush.min}}" max="{{overlapBrush.max}}" step="{{overlapBrush.step}}" />
+                </label>
+                <button type="button" data-action="undoOverlap" title="Undo the last stroke (Ctrl+Z)" aria-label="Undo the last stroke">
+                  <i class="fas fa-rotate-left"></i>
+                </button>
+                <button type="button" data-action="clearOverlap" title="Clear the painted overlap" aria-label="Clear the painted overlap">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+              <small data-overlap-status></small>
             </div>
 
             <!-- Foundry dynamic ring -->

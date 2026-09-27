@@ -582,6 +582,28 @@
   cursor: grabbing;
 }
 
+/*
+ * Painting the ring overlap: a larger preview (everything inside is sized in
+ * cqw/cqh or %, so it all scales), and a wider preview column to hold it.
+ */
+.runware-output-dialog .runware-token-preview[data-painting] {
+  width: 320px;
+  height: 320px;
+  cursor: crosshair;
+}
+
+/* Focused on a paint stroke only so Ctrl+Z reaches the dialog; no focus ring. */
+.runware-output-dialog .runware-token-preview:focus {
+  outline: none;
+}
+
+/* Wide layouts only: the narrow single-column layout below must keep winning. */
+@media (min-width: 769px) {
+  .runware-output-dialog .runware-output-layout:has(.runware-token-preview[data-painting]) {
+    grid-template-columns: 340px 1fr;
+  }
+}
+
 /* Layers never take the pointer: the preview box itself handles drag and wheel. */
 .runware-output-dialog .runware-token-preview > * {
   pointer-events: none;
@@ -680,7 +702,8 @@
   display: block;
 }
 
-.runware-output-dialog .runware-token-preview .token-subject-clip > img {
+.runware-output-dialog .runware-token-preview .token-subject-clip > img,
+.runware-output-dialog .runware-token-preview .token-overlap > * {
   position: absolute;
   inset: 0;
   margin: auto;
@@ -695,9 +718,39 @@
   transform-origin: center;
 }
 
-.runware-output-dialog .runware-token-preview[data-ring="custom"] .token-subject {
+/* Every framed layer (subject, overlap subject, overlap mask) shares this box. */
+.runware-output-dialog .runware-token-preview[data-ring="custom"] .token-subject,
+.runware-output-dialog .runware-token-preview[data-ring="custom"] .token-overlap-mask {
   width: 66.7%;
   height: 66.7%;
+}
+
+/*
+ * Ring overlap: a second, unclipped copy of the subject above the ring layers,
+ * cut down to the painted parts by the mask (a PNG data URL set from JS)
+ * stretched over the subject's box - the compositor's masked layer.
+ */
+.runware-output-dialog .runware-token-preview .token-subject-overlap {
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The mask canvas itself, shown as a tint while painting. */
+.runware-output-dialog .runware-token-preview .token-overlap-mask {
+  opacity: 0.45;
+  transform-origin: center;
+}
+
+/* Brush outline; position and size are set from JS in px. */
+.runware-output-dialog .runware-token-preview .token-overlap-cursor {
+  inset: auto;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  transform: translate(-50%, -50%);
 }
 
 /* Dynamic ring band from 2/3 to ~0.79 of the token; colour set from JS. */
@@ -924,6 +977,66 @@
   height: 100%;
   object-fit: contain;
   border: none;
+}
+
+/* Ring overlap editor under "Keep the character inside the ring" */
+.runware-output-dialog .runware-overlap {
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--color-border-dark-tertiary);
+  border-radius: 4px;
+}
+
+.runware-output-dialog .runware-overlap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.runware-output-dialog .runware-overlap-title {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: var(--color-text-dark-primary);
+}
+
+.runware-output-dialog .runware-overlap-header button {
+  flex: none;
+  width: auto;
+  padding: 0 0.6rem;
+}
+
+.runware-output-dialog .runware-overlap-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.runware-output-dialog .runware-overlap-tools button {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.runware-output-dialog .runware-overlap button[aria-pressed="true"] {
+  outline: 2px solid var(--color-border-highlight);
+  outline-offset: -2px;
+}
+
+.runware-output-dialog .runware-overlap-size {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--color-text-dark-secondary);
+}
+
+.runware-output-dialog .runware-overlap-size input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* "Preview background" under a background prompt */

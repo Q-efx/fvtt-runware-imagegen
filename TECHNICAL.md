@@ -81,6 +81,15 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
   instead of silently switching models, and a failed settings read keeps the current list. A
   selected preset that no longer exists, or no model at all, is an error (`_modelError()`) for Apply
   and both paid buttons, checked before anything is paid. GMs get a "Manage presets" button
+- **Ring overlap editor**: under "Keep the character inside the ring" (dynamic and custom rings,
+  only while that is ticked), "Paint overlap" switches the token preview into paint mode: it grows
+  to 320px, and the pointer paints (brush / eraser, size slider, Undo with a 20-step `ImageData`
+  stack and Ctrl+Z, Clear) instead of moving and zooming the subject. The mask is a
+  `OVERLAP_MASK_SIZE` canvas over the subject's box, shown as a tint while painting; a second
+  subject `<img>` above the ring layers with the mask as its CSS `mask-image` shows the painted
+  parts over the ring in both modes. Both get the subject's box and transform
+  (`_updateFramingPreview()`, `data-framed`), and a pointer maps onto the mask through the
+  canvas' bounding rect. Painting is locked while `_isWorking()`; the mask belongs to the window
 - **Plan, not work**: `_readPlan()` builds an `OutputPlan`; the `onApply` callback from `module.js`
   does the work. The dialog shows its errors and stays open. X, Escape, Cancel and Back are blocked
   while Apply, a ring generation or a background preview is running (`_isWorking()`)
@@ -102,7 +111,9 @@ This FoundryVTT module integrates Runware AI image generation directly into acto
 
 #### 10. Image Compositor (`scripts/image-compositor.js`)
 - **Pure canvas code**: `compositeLayers()` stacks layers (`cover` / `contain` / `stretch` fit,
-  scale, offset, circular clip); `punchCircle()` cuts a ring's centre and everything outside it
+  scale, offset, circular clip, and an optional alpha `mask` stretched over the layer's box and
+  applied with `destination-in` on a canvas of its own); `punchCircle()` cuts a ring's centre and
+  everything outside it
 - **No tainted canvas**: base64 and data URIs are decoded locally, same-origin paths are fetched,
   cross-origin URLs are refused
 - **Fallback**: `OffscreenCanvas` when available, otherwise a detached `<canvas>`
@@ -193,14 +204,26 @@ dynamic ring's `subject.scale`), just under the band: the core ring does not mas
 anything outside it would be drawn over the map. Without it, a custom-ring subject is still clipped
 to the token circle. A dynamic ring's `subject.scale` still applies on top, in Foundry.
 
+The ring overlap (`token.overlapMask`, only with `token.clipSubject` and a dynamic or custom ring)
+exempts painted parts from that clip. It is `null` when nothing is painted or it doesn't apply,
+else `{ key, src }`: `src` a PNG data URI of the `OVERLAP_MASK_SIZE` mask, `key` a hash of its
+alpha channel. The mask covers the subject layer's box (the square the subject is `contain`-fitted
+into), so it follows the framing and fits both rings. `executeOutputPlan()` accepts only a
+`data:image/png` source. For the custom ring it adds the subject once more, masked, above the ring
+(still clipped to the token circle). For the dynamic ring, which Foundry draws under its subject
+texture, the single subject layer is kept where it is inside the clip or painted
+(`maskExemptsClip`: the mask unioned with the clip circle), so no pixel is drawn twice. The saved-token key uses `key` instead of the data
+URI. Since the mask needs `clipSubject`, which already forces a composited token, an empty mask
+leaves the output exactly as before.
+
 | Output | Layers (bottom → top) | Document fields |
 | --- | --- | --- |
 | Portrait, keep | original | `img` |
 | Portrait, remove | subject | `img` |
 | Portrait, new background | background (cover) → subject, at the original's size | `img` |
 | Token, no ring | [background clipped to a circle] → subject | `texture.src`, `ring.enabled=false` |
-| Token, dynamic ring | [background clipped to `RING_INNER_RADIUS / subjectScale`] → subject | `texture.src` and `ring.subject.texture` = the file, `ring.enabled=true`, `ring.subject.scale`, `ring.colors.ring/background` |
-| Token, custom ring | [background clipped to `RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP`] → subject in the inner ⅔ (`CUSTOM_RING_SUBJECT_SCALE`) → ring (stretch) | `texture.src`, `ring.enabled=false` |
+| Token, dynamic ring | [background clipped to `RING_INNER_RADIUS / subjectScale`] → subject (clip, or clip ∪ overlap mask) | `texture.src` and `ring.subject.texture` = the file, `ring.enabled=true`, `ring.subject.scale`, `ring.colors.ring/background` |
+| Token, custom ring | [background clipped to `RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP`] → subject in the inner ⅔ (`CUSTOM_RING_SUBJECT_SCALE`) → ring (stretch) → [subject masked by the overlap] | `texture.src`, `ring.enabled=false` |
 
 - **The dynamic ring doesn't mask the subject**: Foundry draws the subject texture over the ring,
   so a baked-in background has to stop at the ring's inner edge. `subject.scale` scales the ring
@@ -226,7 +249,7 @@ flow runs (Cancel ends it):
   token requests are paid once and a background is never reused for another model or preset
 - `ring:<n>`: the last generated ring (regenerating replaces it)
 - `output:portrait:…` / `output:token:…`: the saved path of a final image for an identical plan
-  and background request
+  and background request (the token's overlap mask counts by its `key`, not its data URI)
 
 Rings and backgrounds are shared between the caches of all picked images, so **Back to images** and
 picking again never pays for them twice. If Apply fails (for example a failed upload or actor

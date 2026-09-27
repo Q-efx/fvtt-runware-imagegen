@@ -37,6 +37,13 @@
  * @property {number} [offsetY=0] - Box shift as a fraction of the output height.
  * @property {number|null} [clipCircle=null] - Clip radius as a fraction of
  *   min(width, height) / 2, centred; clamped to at most 1.
+ * @property {ImageSource|HTMLCanvasElement|OffscreenCanvas|null} [mask=null] -
+ *   Alpha mask stretched over the layer's box (the same scale and offsets as
+ *   the layer, whatever its fit): only the layer's pixels where the mask is
+ *   opaque are drawn, after the clips. Its colour is ignored.
+ * @property {boolean} [maskExemptsClip=false] - With both `mask` and
+ *   `clipCircle`: draw the layer where it is inside the circle OR the mask is
+ *   opaque (the mask exempts parts from the clip), instead of both.
  */
 
 /**
@@ -92,13 +99,18 @@ export async function compositeLayers({ width, height, layers }) {
   const outputHeight = toCanvasDimension(height, 'height');
   const activeLayers = (Array.isArray(layers) ? layers : []).filter(Boolean);
 
-  // Decode every layer up front (in parallel). allSettled rather than all, so
-  // that when one layer fails the bitmaps that did load can still be closed.
-  const settled = await Promise.allSettled(activeLayers.map((layer) => loadBitmap(layer.src)));
-  const bitmaps = settled.map((result) => (result.status === 'fulfilled' ? result.value : null));
+  // Decode every layer and mask up front (in parallel). allSettled rather than
+  // all, so that when one fails the bitmaps that did load can still be closed.
+  const [settled, maskSettled] = await Promise.all([
+    Promise.allSettled(activeLayers.map((layer) => loadBitmap(layer.src))),
+    Promise.allSettled(activeLayers.map((layer) => loadMask(layer.mask)))
+  ]);
+  const fulfilled = (result) => (result.status === 'fulfilled' ? result.value : null);
+  const bitmaps = settled.map(fulfilled);
+  const masks = maskSettled.map(fulfilled);
 
   try {
-    const failure = settled.find((result) => result.status === 'rejected');
+    const failure = [...settled, ...maskSettled].find((result) => result.status === 'rejected');
     if (failure) throw failure.reason;
 
     const { canvas, ctx } = createCanvas(outputWidth, outputHeight);
@@ -106,6 +118,7 @@ export async function compositeLayers({ width, height, layers }) {
 
     activeLayers.forEach((layer, index) => {
       const bitmap = bitmaps[index];
+      const mask = masks[index];
       const scale = Number.isFinite(layer.scale) && layer.scale > 0 ? layer.scale : 1;
       const box = {
         width: outputWidth * scale,
@@ -121,20 +134,49 @@ export async function compositeLayers({ width, height, layers }) {
       const hasClip = layer.clipCircle !== null && layer.clipCircle !== undefined
         && layer.clipCircle !== false && Number.isFinite(clip);
 
-      ctx.save();
+      // A masked layer is drawn on its own canvas first, so destination-in
+      // only cuts into this layer and not into the layers beneath it.
+      const layerCanvas = mask ? createCanvas(outputWidth, outputHeight) : null;
+      const target = layerCanvas ? layerCanvas.ctx : ctx;
+      // The circle is then part of the mask instead of a clip, see below.
+      const exempt = !!(mask && hasClip && layer.maskExemptsClip);
+      const radius = Math.max(0, Math.min(1, clip)) * halfMin;
+
+      target.save();
       if (layer.fit === 'cover') {
         // A cover-fit image overflows its box; crop it to the box, not the canvas.
-        ctx.beginPath();
-        ctx.rect(box.x, box.y, box.width, box.height);
-        ctx.clip();
+        target.beginPath();
+        target.rect(box.x, box.y, box.width, box.height);
+        target.clip();
       }
-      if (hasClip) {
-        ctx.beginPath();
-        ctx.arc(outputWidth / 2, outputHeight / 2, Math.max(0, Math.min(1, clip)) * halfMin, 0, Math.PI * 2);
-        ctx.clip();
+      if (hasClip && !exempt) {
+        target.beginPath();
+        target.arc(outputWidth / 2, outputHeight / 2, radius, 0, Math.PI * 2);
+        target.clip();
       }
-      ctx.drawImage(bitmap, rect.x, rect.y, rect.width, rect.height);
-      ctx.restore();
+      target.drawImage(bitmap, rect.x, rect.y, rect.width, rect.height);
+      target.restore();
+
+      if (layerCanvas) {
+        // Nothing of the layer lies outside its box (contain and stretch fit
+        // inside it, cover is cropped to it), so it doesn't matter whether the
+        // browser clears or keeps the area the mask doesn't cover.
+        target.globalCompositeOperation = 'destination-in';
+        if (exempt) {
+          // Union of the mask and the clip circle, at the output's resolution
+          // so the circle's edge stays as sharp as a clip.
+          const union = createCanvas(outputWidth, outputHeight);
+          union.ctx.drawImage(mask, box.x, box.y, box.width, box.height);
+          union.ctx.beginPath();
+          union.ctx.arc(outputWidth / 2, outputHeight / 2, radius, 0, Math.PI * 2);
+          union.ctx.fill();
+          target.drawImage(union.canvas, 0, 0);
+        } else {
+          target.drawImage(mask, box.x, box.y, box.width, box.height);
+        }
+        target.globalCompositeOperation = 'source-over';
+        ctx.drawImage(layerCanvas.canvas, 0, 0);
+      }
     });
 
     return await exportImage(canvas);
@@ -142,6 +184,9 @@ export async function compositeLayers({ width, height, layers }) {
     // Close only the bitmaps decoded here, never ones the caller passed in.
     bitmaps.forEach((bitmap, index) => {
       if (bitmap && bitmap !== activeLayers[index].src) bitmap.close();
+    });
+    masks.forEach((mask, index) => {
+      if (isImageBitmap(mask) && mask !== activeLayers[index].mask) mask.close();
     });
   }
 }
@@ -260,6 +305,23 @@ const WEBP_QUALITY = 0.92;
 
 function isImageBitmap(value) {
   return typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap;
+}
+
+function isCanvas(value) {
+  return (typeof HTMLCanvasElement !== 'undefined' && value instanceof HTMLCanvasElement)
+    || (typeof OffscreenCanvas !== 'undefined' && value instanceof OffscreenCanvas);
+}
+
+/**
+ * A layer's mask, ready to draw: a canvas as-is, any other source decoded
+ * like a layer (see loadBitmap()), or null for no mask.
+ * @param {ImageSource|HTMLCanvasElement|OffscreenCanvas|null|undefined} mask
+ * @returns {Promise<ImageBitmap|HTMLCanvasElement|OffscreenCanvas|null>}
+ */
+async function loadMask(mask) {
+  if (mask === null || mask === undefined || mask === false) return null;
+  if (isCanvas(mask)) return mask;
+  return loadBitmap(mask);
 }
 
 /**

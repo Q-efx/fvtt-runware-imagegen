@@ -5,7 +5,9 @@
  * decide what to make of it: a portrait (keep / remove / replace the
  * background) and a token (no ring, Foundry's dynamic ring, or a custom ring
  * baked into the image, each with an optional background). The token subject
- * can be moved (drag) and zoomed (mouse wheel) on the token preview.
+ * can be moved (drag) and zoomed (mouse wheel) on the token preview, and in
+ * paint mode the parts that pass over the ring are painted on it (the ring
+ * overlap mask).
  *
  * The dialog owns the UI and builds an OutputPlan; module.js owns the work
  * (removal, generation, compositing, saving) through the `onApply` callback.
@@ -23,7 +25,9 @@ import {
   LIMITS,
   TOKEN_FRAMING,
   RING_INNER_RADIUS,
-  CUSTOM_RING_BACKGROUND_OVERLAP
+  CUSTOM_RING_BACKGROUND_OVERLAP,
+  OVERLAP_MASK_SIZE,
+  OVERLAP_BRUSH
 } from './constants.js';
 import { ImageFileHandler } from './file-handler.js';
 import { RunwarePresetConfig } from './preset-config.js';
@@ -64,6 +68,17 @@ const WHEEL_ZOOM_SPEED = 0.0015;
 const ENTRY_URIS = new WeakMap();
 // The source each preview element was last given, see setImageSource().
 const SHOWN_SOURCES = new WeakMap();
+// The mask-image each overlap preview was last given, see setMaskImage().
+const SHOWN_MASKS = new WeakMap();
+// The overlap mask is painted in this colour, which only shows as the tint
+// while painting: the compositor and the CSS mask read its alpha alone.
+const OVERLAP_PAINT_COLOR = 'rgb(255, 70, 70)';
+// Undo steps kept for the overlap mask, one ImageData (1 MB at 512 px) each.
+const OVERLAP_UNDO_LIMIT = 20;
+const FRAMING_HINT = 'Drag to move, scroll to zoom.';
+const FRAMING_TITLE = 'Drag to move, scroll to zoom, double-click to reset';
+const PAINTING_HINT = 'Painting. Leave paint mode to move or zoom.';
+const PAINTING_TITLE = 'Paint the parts that pass over the ring';
 // What each in-dialog paid call blocks closing with, see close().
 const ASSET_TASK_MESSAGES = {
   ring: 'Please wait until the ring is generated.',
@@ -164,6 +179,55 @@ function setImageSource(img, source) {
   }
 }
 
+/**
+ * Set an overlap preview's CSS mask to `uri`, or clear it. Same change-only
+ * rule as setImageSource().
+ */
+function setMaskImage(element, uri) {
+  if (SHOWN_MASKS.get(element) === uri) return;
+  SHOWN_MASKS.set(element, uri);
+  for (const property of ['mask-image', '-webkit-mask-image']) {
+    if (uri) {
+      element.style.setProperty(property, `url("${uri}")`);
+    } else {
+      element.style.removeProperty(property);
+    }
+  }
+}
+
+/** Overlap brush diameter in mask px, clamped to OVERLAP_BRUSH. */
+function clampBrushSize(value) {
+  const { min, max, fallback } = OVERLAP_BRUSH;
+  const number = Number(value);
+  if (value === '' || value === null || value === undefined || !Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+/**
+ * Content key of the overlap mask: a 53-bit hash (cyrb53) of its alpha
+ * channel, or null when nothing is painted. Equal masks get equal keys; the
+ * colour is ignored like everywhere else the mask is used.
+ * @param {Uint8ClampedArray} data - RGBA pixels
+ * @returns {string|null}
+ */
+function hashMaskAlpha(data) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  let painted = false;
+  for (let i = 3; i < data.length; i += 4) {
+    const alpha = data[i];
+    if (alpha) painted = true;
+    h1 = Math.imul(h1 ^ alpha, 2654435761);
+    h2 = Math.imul(h2 ^ alpha, 1597334677);
+  }
+  if (!painted) return null;
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
 export class RunwareOutputDialog extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2
 ) {
@@ -219,7 +283,17 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
     this._onFramingPointerMove = this._onFramingPointerMove.bind(this);
     this._onFramingPointerUp = this._onFramingPointerUp.bind(this);
     this._onFramingWheel = this._onFramingWheel.bind(this);
-    this._resetTokenFraming = this._resetTokenFraming.bind(this);
+    this._onFramingDoubleClick = this._onFramingDoubleClick.bind(this);
+    this._onFramingPointerLeave = this._onFramingPointerLeave.bind(this);
+    // Ring overlap mask: painted in paint mode on the token preview's mask
+    // canvas (OVERLAP_MASK_SIZE, the subject's box), see _getOverlapMask().
+    this._painting = false;
+    this._overlapTool = 'brush';       // 'brush' | 'eraser'
+    this._stroke = null;               // the stroke being painted
+    this._overlapUndo = [];            // ImageData before each change, newest last
+    this._overlapRevision = 0;         // bumped on every change of the mask
+    this._overlapMask = null;          // {revision, key, src} of the last read
+    this._onOverlapKeyDown = this._onOverlapKeyDown.bind(this);
     this._setStatus = this._setStatus.bind(this);
   }
 
@@ -237,10 +311,14 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       apply: RunwareOutputDialog.prototype._onApply,
       back: RunwareOutputDialog.prototype._onBack,
       cancel: RunwareOutputDialog.prototype._onCancel,
+      clearOverlap: RunwareOutputDialog.prototype._onClearOverlap,
       generateRing: RunwareOutputDialog.prototype._onGenerateRing,
       managePresets: RunwareOutputDialog.prototype._onManagePresets,
       previewBackground: RunwareOutputDialog.prototype._onPreviewBackground,
-      resetTokenFraming: RunwareOutputDialog.prototype._onResetTokenFraming
+      resetTokenFraming: RunwareOutputDialog.prototype._onResetTokenFraming,
+      setOverlapTool: RunwareOutputDialog.prototype._onSetOverlapTool,
+      toggleOverlapPaint: RunwareOutputDialog.prototype._onToggleOverlapPaint,
+      undoOverlap: RunwareOutputDialog.prototype._onUndoOverlap
     },
     form: {
       handler: RunwareOutputDialog.prototype._onSubmit,
@@ -358,6 +436,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       ...getDefaultPrompts({ generationPrompt: this.generationPrompt }),
       generationPrompt: this.generationPrompt.trim(),
       subjectScale: LIMITS.subjectScale,
+      overlapBrush: OVERLAP_BRUSH,
       generationModel: this.modelParams?.model ?? '',
       assetPresets: this._presets.map(({ id, name }) => ({ id, name })),
       presetsLoaded,
@@ -379,8 +458,15 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
 
     this.element.addEventListener('change', this._handleFormChange);
     this.element.addEventListener('input', this._handleFormChange);
+    this.element.addEventListener('keydown', this._onOverlapKeyDown);
     this._bindFramingListeners(this.element.querySelector('[data-token-framing]'));
     this._listenersBound = true;
+    // Sizing a canvas clears it, so only here, before anything is painted.
+    const maskCanvas = this._overlapCanvas();
+    if (maskCanvas) {
+      maskCanvas.width = OVERLAP_MASK_SIZE;
+      maskCanvas.height = OVERLAP_MASK_SIZE;
+    }
     if (this._presetsHookId === null) {
       this._presetsHookId = Hooks.on('runware-imagegen.presetsUpdated', this._handlePresetsUpdated);
     }
@@ -402,6 +488,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
     if (this._listenersBound && this.element instanceof HTMLElement) {
       this.element.removeEventListener('change', this._handleFormChange);
       this.element.removeEventListener('input', this._handleFormChange);
+      this.element.removeEventListener('keydown', this._onOverlapKeyDown);
     }
     this._bindFramingListeners(null);
     this._listenersBound = false;
@@ -414,7 +501,8 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
 
   /**
    * Whether Apply, a ring generation or a background preview is running.
-   * Each blocks the others, closing, "Back to images" and the token framing.
+   * Each blocks the others, closing, "Back to images", the token framing and
+   * the overlap painting.
    */
   _isWorking() {
     return this._busy || this._assetTask !== null;
@@ -761,13 +849,14 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
   }
 
   // -------------------------------------------------------------------------
-  // Token framing: drag to move, wheel to zoom, double-click to reset
+  // Token framing: drag to move, wheel to zoom, double-click to reset. In
+  // paint mode the same pointer listeners paint the overlap mask instead.
   // -------------------------------------------------------------------------
 
   /**
-   * Attach the framing listeners to the token preview, or detach them from
-   * the previous one with `null`. The wheel listener must not be passive, or
-   * it couldn't stop the window from scrolling.
+   * Attach the framing (and painting) listeners to the token preview, or
+   * detach them from the previous one with `null`. The wheel listener must
+   * not be passive, or it couldn't stop the window from scrolling.
    * @param {HTMLElement|null} target
    */
   _bindFramingListeners(target) {
@@ -778,17 +867,20 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       previous.removeEventListener('pointerup', this._onFramingPointerUp);
       previous.removeEventListener('pointercancel', this._onFramingPointerUp);
       previous.removeEventListener('wheel', this._onFramingWheel);
-      previous.removeEventListener('dblclick', this._resetTokenFraming);
+      previous.removeEventListener('dblclick', this._onFramingDoubleClick);
+      previous.removeEventListener('pointerleave', this._onFramingPointerLeave);
     }
     this._framingTarget = target instanceof HTMLElement ? target : null;
     this._drag = null;
+    this._stroke = null;
     if (!this._framingTarget) return;
     target.addEventListener('pointerdown', this._onFramingPointerDown);
     target.addEventListener('pointermove', this._onFramingPointerMove);
     target.addEventListener('pointerup', this._onFramingPointerUp);
     target.addEventListener('pointercancel', this._onFramingPointerUp);
     target.addEventListener('wheel', this._onFramingWheel, { passive: false });
-    target.addEventListener('dblclick', this._resetTokenFraming);
+    target.addEventListener('dblclick', this._onFramingDoubleClick);
+    target.addEventListener('pointerleave', this._onFramingPointerLeave);
   }
 
   /** Framing is frozen while Apply, a ring generation or a background preview runs. */
@@ -809,6 +901,10 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
   }
 
   _onFramingPointerDown(event) {
+    if (this._painting) {
+      this._onPaintPointerDown(event);
+      return;
+    }
     if (event.button !== 0 || this._isFramingLocked()) return;
     event.preventDefault();
     const target = event.currentTarget;
@@ -825,6 +921,10 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
   }
 
   _onFramingPointerMove(event) {
+    if (this._painting || this._stroke) {
+      this._onPaintPointerMove(event);
+      return;
+    }
     const drag = this._drag;
     if (!drag || event.pointerId !== drag.pointerId) return;
     if (this._isFramingLocked()) {
@@ -841,6 +941,10 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
   }
 
   _onFramingPointerUp(event) {
+    if (this._stroke) {
+      this._endStroke(event);
+      return;
+    }
     if (!this._drag || event.pointerId !== this._drag.pointerId) return;
     const target = event.currentTarget ?? this._framingTarget;
     if (target?.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId);
@@ -852,6 +956,8 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
    * Zoom around the cursor: the subject point under it stays put.
    */
   _onFramingWheel(event) {
+    // Paint mode doesn't zoom; let the window scroll.
+    if (this._painting) return;
     event.preventDefault();
     if (this._isFramingLocked() || !event.deltaY) return;
 
@@ -880,6 +986,11 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
     this._setTokenFraming(null);
   }
 
+  /** A double-click in paint mode is two dots, not a reset. */
+  _onFramingDoubleClick() {
+    if (!this._painting) this._resetTokenFraming();
+  }
+
   async _onResetTokenFraming(event, target) {
     event.preventDefault();
     this._resetTokenFraming();
@@ -893,6 +1004,8 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
   /**
    * Position the preview subject like the compositor will: zoomed and shifted
    * inside the token, then (dynamic ring) scaled by Foundry's subject.scale.
+   * The overlap subject and the mask canvas (`data-framed`) share the
+   * subject's box and get the same transform, so the mask follows the framing.
    * Also cheap enough to run on every pointer move.
    */
   _updateFramingPreview() {
@@ -902,13 +1015,299 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
     const { ringScale } = this._framingGeometry();
 
     // cqw/cqh are the token preview's edge (a size container, see module.css).
-    const subject = root.querySelector('img[data-preview="token-subject"]');
-    if (subject) {
-      subject.style.transform = `scale(${ringScale}) `
-        + `translate(${offsetX * 100}cqw, ${offsetY * 100}cqh) scale(${zoom})`;
+    const transform = `scale(${ringScale}) `
+      + `translate(${offsetX * 100}cqw, ${offsetY * 100}cqh) scale(${zoom})`;
+    for (const layer of root.querySelectorAll('.runware-token-preview [data-framed]')) {
+      layer.style.transform = transform;
     }
     const zoomLabel = root.querySelector('[data-framing-zoom]');
     if (zoomLabel) zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+  }
+
+  // -------------------------------------------------------------------------
+  // Ring overlap: paint the parts of the subject that pass over the ring
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether the overlap mask applies, and its editor is shown: only a subject
+   * kept inside a dynamic or custom ring has anything to break out of.
+   * @param {Object} state - from _readState()
+   */
+  _isOverlapOffered(state) {
+    return state.tokenEnabled
+      && state.clipSubject
+      && (state.tokenRing === 'dynamic' || state.tokenRing === 'custom');
+  }
+
+  /** The mask canvas, also shown as the tint while painting. */
+  _overlapCanvas() {
+    return this.element?.querySelector?.('canvas[data-preview="token-overlap-mask"]') ?? null;
+  }
+
+  _overlapContext() {
+    return this._overlapCanvas()?.getContext('2d', { willReadFrequently: true }) ?? null;
+  }
+
+  /**
+   * The mask as the plan carries it: `key` is a content hash (null when
+   * nothing is painted), `src` a PNG data URI. Read again only after the mask
+   * changed, since _readPlan() runs on every keystroke.
+   * @returns {{key: string|null, src: string}}
+   */
+  _getOverlapMask() {
+    if (this._overlapMask?.revision === this._overlapRevision) return this._overlapMask;
+    const ctx = this._overlapContext();
+    if (!ctx) return { key: null, src: '' };
+    const key = hashMaskAlpha(ctx.getImageData(0, 0, OVERLAP_MASK_SIZE, OVERLAP_MASK_SIZE).data);
+    this._overlapMask = {
+      revision: this._overlapRevision,
+      key,
+      src: key ? ctx.canvas.toDataURL('image/png') : ''
+    };
+    return this._overlapMask;
+  }
+
+  /** Keep the mask as it is now for Undo (bounded, oldest dropped). */
+  _pushOverlapUndo(ctx) {
+    this._overlapUndo.push(ctx.getImageData(0, 0, OVERLAP_MASK_SIZE, OVERLAP_MASK_SIZE));
+    if (this._overlapUndo.length > OVERLAP_UNDO_LIMIT) this._overlapUndo.shift();
+  }
+
+  _brushSize() {
+    return clampBrushSize(this._value('overlapBrushSize'));
+  }
+
+  /**
+   * A pointer position in mask px. The mask canvas is only scaled and
+   * translated, so its bounding rect maps linearly onto the mask, whatever
+   * the zoom, offset, ring scale or custom-ring box.
+   * @returns {{x: number, y: number}|null}
+   */
+  _maskPoint(event) {
+    const rect = this._overlapCanvas()?.getBoundingClientRect();
+    if (!rect?.width || !rect?.height) return null;
+    return {
+      x: (event.clientX - rect.left) / rect.width * OVERLAP_MASK_SIZE,
+      y: (event.clientY - rect.top) / rect.height * OVERLAP_MASK_SIZE
+    };
+  }
+
+  /**
+   * Paint (or erase) a round dot at `from`, or a round line from `from` to
+   * `to`, so a fast stroke leaves no gaps between pointer events.
+   */
+  _paintOverlap(ctx, from, to, size) {
+    ctx.save();
+    ctx.globalCompositeOperation = this._overlapTool === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.fillStyle = OVERLAP_PAINT_COLOR;
+    ctx.strokeStyle = OVERLAP_PAINT_COLOR;
+    ctx.beginPath();
+    if (from === to) {
+      ctx.arc(from.x, from.y, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.lineWidth = size;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+    this._overlapRevision++;
+  }
+
+  _onPaintPointerDown(event) {
+    if (event.button !== 0 || this._isWorking() || this._stroke) return;
+    const ctx = this._overlapContext();
+    const point = this._maskPoint(event);
+    if (!ctx || !point) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    target.setPointerCapture?.(event.pointerId);
+    // For Ctrl+Z (see _onOverlapKeyDown); keyboard events go to the focus.
+    target.focus?.({ preventScroll: true });
+
+    this._pushOverlapUndo(ctx);
+    this._stroke = { pointerId: event.pointerId, last: point, size: this._brushSize() };
+    this._paintOverlap(ctx, point, point, this._stroke.size);
+  }
+
+  _onPaintPointerMove(event) {
+    this._moveBrushCursor(event);
+    const stroke = this._stroke;
+    if (!stroke || event.pointerId !== stroke.pointerId) return;
+    if (this._isWorking() || !this._painting) {
+      this._endStroke(event);
+      return;
+    }
+    const ctx = this._overlapContext();
+    const point = this._maskPoint(event);
+    if (!ctx || !point) return;
+    this._paintOverlap(ctx, stroke.last, point, stroke.size);
+    stroke.last = point;
+  }
+
+  /**
+   * Finish the stroke and bring the overlap preview and the plan up to date
+   * (the masked subject is only refreshed here, not on every move).
+   */
+  _endStroke(event) {
+    if (!this._stroke || event.pointerId !== this._stroke.pointerId) return;
+    this._cancelStroke();
+    this._refresh();
+  }
+
+  /** Stop the stroke where it is; what was painted stays (and can be undone). */
+  _cancelStroke() {
+    const stroke = this._stroke;
+    if (!stroke) return;
+    const target = this._framingTarget;
+    if (target?.hasPointerCapture?.(stroke.pointerId)) target.releasePointerCapture(stroke.pointerId);
+    this._stroke = null;
+  }
+
+  _onFramingPointerLeave(event) {
+    const cursor = this.element?.querySelector?.('[data-preview="token-overlap-cursor"]');
+    if (cursor) cursor.hidden = true;
+  }
+
+  /** The brush outline under the pointer, at the brush's size on screen. */
+  _moveBrushCursor(event) {
+    const cursor = this.element?.querySelector?.('[data-preview="token-overlap-cursor"]');
+    if (!cursor) return;
+    const target = this._framingTarget;
+    const rect = this._overlapCanvas()?.getBoundingClientRect();
+    if (!this._painting || this._isWorking() || !target || !rect?.width) {
+      cursor.hidden = true;
+      return;
+    }
+    // Screen px -> the preview's own CSS px, in case the window is scaled
+    // (ApplicationV2 position.scale, CSS zoom).
+    const preview = target.getBoundingClientRect();
+    const scale = preview.width / (target.offsetWidth || preview.width || 1) || 1;
+    const diameter = this._brushSize() * rect.width / OVERLAP_MASK_SIZE / scale;
+    cursor.style.left = `${(event.clientX - preview.left) / scale - target.clientLeft}px`;
+    cursor.style.top = `${(event.clientY - preview.top) / scale - target.clientTop}px`;
+    cursor.style.width = `${diameter}px`;
+    cursor.style.height = `${diameter}px`;
+    cursor.hidden = false;
+  }
+
+  /**
+   * Enter or leave paint mode. While painting, the preview grows and the
+   * pointer paints instead of framing; leaving it is the way to reframe.
+   */
+  _setPainting(painting) {
+    this._cancelStroke();
+    this._drag = null;
+    this._painting = !!painting;
+    if (!this._painting) {
+      const cursor = this.element?.querySelector?.('[data-preview="token-overlap-cursor"]');
+      if (cursor) cursor.hidden = true;
+    }
+  }
+
+  async _onToggleOverlapPaint(event, target) {
+    event.preventDefault();
+    if (this._isWorking()) return;
+    this._setPainting(!this._painting);
+    this._refresh();
+  }
+
+  async _onSetOverlapTool(event, target) {
+    event.preventDefault();
+    if (this._isWorking()) return;
+    this._overlapTool = target?.dataset?.tool === 'eraser' ? 'eraser' : 'brush';
+    this._refresh();
+  }
+
+  async _onUndoOverlap(event, target) {
+    event.preventDefault();
+    this._undoOverlap();
+  }
+
+  _undoOverlap() {
+    if (this._isWorking() || this._stroke) return;
+    const ctx = this._overlapContext();
+    const previous = this._overlapUndo.pop();
+    if (!ctx || !previous) return;
+    ctx.putImageData(previous, 0, 0);
+    this._overlapRevision++;
+    this._refresh();
+  }
+
+  async _onClearOverlap(event, target) {
+    event.preventDefault();
+    if (this._isWorking() || this._stroke) return;
+    const ctx = this._overlapContext();
+    if (!ctx || !this._getOverlapMask().key) return;
+    this._pushOverlapUndo(ctx);
+    ctx.clearRect(0, 0, OVERLAP_MASK_SIZE, OVERLAP_MASK_SIZE);
+    this._overlapRevision++;
+    this._refresh();
+  }
+
+  /**
+   * Ctrl+Z (Cmd+Z) undoes a stroke while painting. Stopped here so Foundry's
+   * own undo doesn't also act on the canvas; a text field keeps its own undo.
+   */
+  _onOverlapKeyDown(event) {
+    if (!this._painting || this._isWorking()) return;
+    if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return;
+    if (String(event.key).toLowerCase() !== 'z') return;
+    const target = event.target;
+    const editsText = target instanceof HTMLTextAreaElement
+      || (target instanceof HTMLElement && target.isContentEditable)
+      || (target instanceof HTMLInputElement && !['range', 'checkbox', 'radio', 'button', 'color'].includes(target.type));
+    if (editsText) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this._undoOverlap();
+  }
+
+  /** Sync the overlap editor and the preview's paint mode (DOM only). */
+  _updateOverlapControls() {
+    const root = this.element;
+    const painting = this._painting;
+
+    const token = root.querySelector('.runware-token-preview');
+    if (token) {
+      token.toggleAttribute('data-painting', painting);
+      token.title = painting ? PAINTING_TITLE : FRAMING_TITLE;
+    }
+    const hint = root.querySelector('[data-framing-hint]');
+    if (hint) hint.textContent = painting ? PAINTING_HINT : FRAMING_HINT;
+
+    const toggle = root.querySelector('[data-action="toggleOverlapPaint"]');
+    if (toggle) {
+      toggle.setAttribute('aria-pressed', String(painting));
+      const label = toggle.querySelector('[data-overlap-paint-label]');
+      if (label) label.textContent = painting ? 'Done painting' : 'Paint overlap';
+    }
+    const tools = root.querySelector('[data-overlap-tools]');
+    if (tools) tools.hidden = !painting;
+    for (const button of root.querySelectorAll('[data-action="setOverlapTool"]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.tool === this._overlapTool));
+    }
+
+    const painted = !!this._getOverlapMask().key;
+    const undo = root.querySelector('[data-action="undoOverlap"]');
+    if (undo) undo.disabled = this._overlapUndo.length === 0;
+    const clear = root.querySelector('[data-action="clearOverlap"]');
+    if (clear) clear.disabled = !painted;
+
+    const status = root.querySelector('[data-overlap-status]');
+    if (status) {
+      const parts = [painted
+        ? 'The painted parts are drawn over the ring.'
+        : 'Nothing painted: the whole character stays inside the ring.'];
+      // Same size as the removed subject, so the mask still fits it on Apply.
+      if (!this.assetCache.get(SUBJECT_CACHE_KEY)?.imageData) {
+        parts.push('The preview shows the original image; its background is removed on Apply.');
+      }
+      status.textContent = parts.join(' ');
+    }
   }
 
   async _onSubmit(event, form, formData) {
@@ -949,8 +1348,11 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
     if (!(this.element instanceof HTMLElement)) return;
     this._normalizeForm();
     const state = this._readState();
+    // Paint mode ends with its editor: the mask is kept, just not applied.
+    if (this._painting && !this._isOverlapOffered(state)) this._setPainting(false);
     const { plan } = this._readPlan();
     this._syncVisibility(state);
+    this._updateOverlapControls();
     this._updatePreview(state, plan);
     this._updateModelNote();
     this._updateBackgroundButtons(plan);
@@ -1006,6 +1408,7 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       'token-body': state.tokenEnabled,
       'dynamic-options': state.tokenRing === 'dynamic',
       'clip-subject': state.tokenRing === 'dynamic' || state.tokenRing === 'custom',
+      'overlap': this._isOverlapOffered(state),
       'custom-options': state.tokenRing === 'custom',
       'ring-generator': state.tokenRing === 'custom' && state.customRing === NEW_RING,
       'bg-solid-option': state.tokenRing === 'dynamic',
@@ -1126,15 +1529,34 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
 
     this._updateFramingPreview();
 
-    // Same clip as the compositor. On screen the dynamic ring's subject.scale
-    // cancels out, so both rings clip at the same radius of the preview.
+    // The painted overlap: the subject once more, unclipped and masked, above
+    // the ring layers (like the compositor's masked layer). The mask canvas
+    // itself is shown as a tint while painting.
+    const overlapMask = plan.token?.overlapMask ?? null;
+    const overlapSubject = root.querySelector('img[data-preview="token-subject-overlap"]');
+    if (overlapSubject) {
+      setImageSource(overlapSubject, subjectURI || this._originalURI);
+      setMaskImage(overlapSubject, overlapMask?.src ?? '');
+      overlapSubject.hidden = !overlapMask;
+    }
+    const maskCanvas = this._overlapCanvas();
+    if (maskCanvas) maskCanvas.hidden = !this._painting;
+
+    // Same clip as the compositor. The dynamic ring clips the texture at
+    // min(1, radius / subject.scale), and the preview shows the texture scaled
+    // by subject.scale, so on screen that is min(subject.scale, radius): the
+    // scale cancels out unless the texture's own edge is nearer.
+    const ringScale = ring === 'dynamic' ? clampSubjectScale(state.subjectScale) : 1;
     const subjectClip = root.querySelector('[data-preview="token-subject-clip"]');
     if (subjectClip) {
       const clipped = state.clipSubject && (ring === 'dynamic' || ring === 'custom');
-      subjectClip.style.clipPath = clipped
-        ? `circle(${(RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP) * 50}% at 50% 50%)`
-        : '';
+      const radius = Math.min(ringScale, RING_INNER_RADIUS + CUSTOM_RING_BACKGROUND_OVERLAP);
+      subjectClip.style.clipPath = clipped ? `circle(${radius * 50}% at 50% 50%)` : '';
     }
+    // The unclipped overlap still ends at the texture's edge, which a
+    // subject.scale below 1 pulls inside the preview.
+    const overlap = root.querySelector('[data-preview="token-overlap"]');
+    if (overlap) overlap.style.clipPath = ringScale < 1 ? `inset(${(1 - ringScale) * 50}%)` : '';
 
     const dynamicRing = root.querySelector('[data-preview="token-ring-dynamic"]');
     if (dynamicRing) {
@@ -1310,6 +1732,10 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
       const backgroundPrompt = ownBackground ? state.tokenBackgroundPrompt.trim() : '';
       if (ownBackground && !backgroundPrompt) errors.push('Enter a background prompt for the token.');
 
+      // Only a subject kept inside the ring has parts to let out over it.
+      const clipSubject = ring !== 'none' && state.clipSubject;
+      const overlapMask = clipSubject ? this._getOverlapMask() : null;
+
       token = {
         ring,
         dynamic,
@@ -1319,8 +1745,10 @@ export class RunwareOutputDialog extends foundry.applications.api.HandlebarsAppl
         backgroundNegativePrompt: ownBackground ? state.tokenBackgroundNegativePrompt.trim() : '',
         backgroundSize: tokenBackgroundSize(portraitSize),
         sameBackgroundAsPortrait,
-        clipSubject: ring !== 'none' && state.clipSubject,
-        framing: clampTokenFraming(this._tokenFraming)
+        clipSubject,
+        framing: clampTokenFraming(this._tokenFraming),
+        // {key, src}: see _getOverlapMask(). module.js keys the saved token by `key`.
+        overlapMask: overlapMask?.key ? { key: overlapMask.key, src: overlapMask.src } : null
       };
     }
 
