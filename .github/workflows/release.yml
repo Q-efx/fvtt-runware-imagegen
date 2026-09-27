@@ -8,6 +8,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Build provenance: the OIDC token signs the attestation (Sigstore),
+      # `attestations` stores it on the repository.
+      id-token: write
+      attestations: write
     # Job-level so the publish step's `if:` can see it (a step can't read its
     # own `env:` in its `if:`, which meant the publish step was always skipped).
     # Only a boolean is exposed here; the token itself goes straight to `with:`.
@@ -96,6 +100,18 @@ jobs:
           name: ${{ steps.get-version.outputs.version-without-v }}
           body: ${{ steps.changelog.outputs.release-notes }}
           artifacts: './module.json, ./module.zip'
+
+      # Signed SLSA build provenance for exactly the files attached above (module.json
+      # is attested after the tag substitution, so its digest matches the download).
+      # Runs after the upload so a failure can never leave a release without assets,
+      # but before the Foundry publish so no unattested build reaches the registry.
+      # Verify with: gh attestation verify module.zip --repo <owner>/<repo>
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            module.zip
+            module.json
 
       - name: Publish to FoundryVTT
         uses: cs96and/FoundryVTT-release-package@e27cef796b4dd34493c1bc29e00fc772b89715d6 # v1.0.3
